@@ -21,7 +21,7 @@ if ('serviceWorker' in navigator) {
 }
 
 // ============================================================================
-// REACT APP RENDERING
+// REACT APP RENDERING — v2.0.0
 // ============================================================================
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
