@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" shape-rendering="geometricPrecision">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="75%">
+      <stop offset="0%" stop-color="#0d2a45"/>
+      <stop offset="100%" stop-color="#040d18"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="38%" r="52%">
+      <stop offset="0%" stop-color="#00E5FF" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#00E5FF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="leafFill" x1="25%" y1="0%" x2="75%" y2="100%">
+      <stop offset="0%" stop-color="#00E5FF"/>
+      <stop offset="100%" stop-color="#00897B"/>
+    </linearGradient>
+    <linearGradient id="leafStroke" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00E5FF"/>
+      <stop offset="100%" stop-color="#26C6DA"/>
+    </linearGradient>
+    <filter id="leafGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="textGlow" x="-10%" y="-30%" width="120%" height="160%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="dotGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background fills edge to edge -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#glow)"/>
+
+  <!-- Subtle grid lines -->
+  <g opacity="0.06" stroke="#00E5FF" stroke-width="1">
+    <line x1="0" y1="128" x2="512" y2="128"/>
+    <line x1="0" y1="256" x2="512" y2="256"/>
+    <line x1="0" y1="384" x2="512" y2="384"/>
+    <line x1="128" y1="0" x2="128" y2="512"/>
+    <line x1="256" y1="0" x2="256" y2="512"/>
+    <line x1="384" y1="0" x2="384" y2="512"/>
+  </g>
+
+  <!-- Outer circuit lines (decorative, corner traces) -->
+  <g opacity="0.25" stroke="#00E5FF" stroke-width="1.5" fill="none">
+    <polyline points="30,80 30,30 80,30"/>
+    <polyline points="432,30 482,30 482,80"/>
+    <polyline points="482,432 482,482 432,482"/>
+    <polyline points="80,482 30,482 30,432"/>
+  </g>
+  <g fill="#00E5FF" opacity="0.35">
+    <circle cx="30" cy="30" r="3"/>
+    <circle cx="482" cy="30" r="3"/>
+    <circle cx="482" cy="482" r="3"/>
+    <circle cx="30" cy="482" r="3"/>
+  </g>
+
+  <!-- Leaf glow backdrop -->
+  <ellipse cx="256" cy="210" rx="130" ry="155" fill="#00E5FF" opacity="0.06"/>
+
+  <!-- Main leaf shape — large, filling most of the icon -->
+  <path d="M256 48 C330 48 400 108 400 198 C400 288 340 355 256 388 C172 355 112 288 112 198 C112 108 182 48 256 48 Z"
+        fill="url(#leafFill)" opacity="0.12" filter="url(#leafGlow)"/>
+  <path d="M256 55 C326 55 393 113 393 198 C393 284 334 348 256 380 C178 348 119 284 119 198 C119 113 186 55 256 55 Z"
+        fill="none" stroke="url(#leafStroke)" stroke-width="3" opacity="0.75"/>
+
+  <!-- Inner leaf glow ring -->
+  <path d="M256 80 C310 80 368 128 368 198 C368 268 316 324 256 352 C196 324 144 268 144 198 C144 128 202 80 256 80 Z"
+        fill="none" stroke="#00E5FF" stroke-width="1" opacity="0.3"/>
+
+  <!-- Center spine -->
+  <line x1="256" y1="72" x2="256" y2="375" stroke="#00E5FF" stroke-width="3" opacity="0.9" stroke-linecap="round"/>
+
+  <!-- Leaf veins — LEFT -->
+  <g stroke="#00BFA5" stroke-width="2" stroke-linecap="round" opacity="0.85">
+    <line x1="256" y1="145" x2="195" y2="175"/>
+    <line x1="256" y1="190" x2="168" y2="205"/>
+    <line x1="256" y1="235" x2="175" y2="248"/>
+    <line x1="256" y1="280" x2="188" y2="290"/>
+  </g>
+
+  <!-- Circuit dots LEFT -->
+  <g filter="url(#dotGlow)">
+    <circle cx="193" cy="175" r="5.5" fill="#00E5FF" opacity="0.95"/>
+    <circle cx="165" cy="205" r="5.5" fill="#00E5FF" opacity="0.95"/>
+    <circle cx="173" cy="248" r="5.5" fill="#26C6DA" opacity="0.9"/>
+    <circle cx="186" cy="290" r="5.5" fill="#26C6DA" opacity="0.85"/>
+  </g>
+  <!-- Horizontal circuit branches left -->
+  <g stroke="#00E5FF" stroke-width="1.5" opacity="0.5" stroke-linecap="round">
+    <line x1="165" y1="205" x2="142" y2="205"/>
+    <line x1="142" y1="205" x2="142" y2="220"/>
+    <circle cx="142" cy="221" r="2.5" fill="#00E5FF"/>
+    <line x1="173" y1="248" x2="150" y2="248"/>
+    <circle cx="149" cy="248" r="2.5" fill="#26C6DA"/>
+  </g>
+
+  <!-- Leaf veins — RIGHT -->
+  <g stroke="#00BFA5" stroke-width="2" stroke-linecap="round" opacity="0.85">
+    <line x1="256" y1="145" x2="317" y2="175"/>
+    <line x1="256" y1="190" x2="344" y2="205"/>
+    <line x1="256" y1="235" x2="337" y2="248"/>
+    <line x1="256" y1="280" x2="324" y2="290"/>
+  </g>
+
+  <!-- Circuit dots RIGHT -->
+  <g filter="url(#dotGlow)">
+    <circle cx="319" cy="175" r="5.5" fill="#00E5FF" opacity="0.95"/>
+    <circle cx="347" cy="205" r="5.5" fill="#00E5FF" opacity="0.95"/>
+    <circle cx="339" cy="248" r="5.5" fill="#26C6DA" opacity="0.9"/>
+    <circle cx="326" cy="290" r="5.5" fill="#26C6DA" opacity="0.85"/>
+  </g>
+  <!-- Horizontal circuit branches right -->
+  <g stroke="#00E5FF" stroke-width="1.5" opacity="0.5" stroke-linecap="round">
+    <line x1="347" y1="205" x2="370" y2="205"/>
+    <line x1="370" y1="205" x2="370" y2="220"/>
+    <circle cx="370" cy="221" r="2.5" fill="#00E5FF"/>
+    <line x1="339" y1="248" x2="362" y2="248"/>
+    <circle cx="363" cy="248" r="2.5" fill="#26C6DA"/>
+  </g>
+
+  <!-- Upward arrow / growth tip -->
+  <g filter="url(#leafGlow)">
+    <path d="M230 118 L256 58 L282 118" fill="none" stroke="#00E5FF" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <line x1="256" y1="58" x2="256" y2="72" stroke="#00E5FF" stroke-width="4.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- Sparkle / star top-right -->
+  <g opacity="0.6" fill="#00E5FF">
+    <polygon points="440,55 444,67 456,67 447,74 450,86 440,79 430,86 433,74 424,67 436,67" transform="scale(0.6) translate(295,40)"/>
+  </g>
+
+  <!-- Text: AgriTech -->
+  <text x="256" y="432" text-anchor="middle"
+        font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+        font-size="68" font-weight="800" letter-spacing="3"
+        fill="#00E5FF" filter="url(#textGlow)">AgriTech</text>
+
+  <!-- Subtitle -->
+  <text x="256" y="468" text-anchor="middle"
+        font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+        font-size="22" font-weight="400" letter-spacing="6"
+        fill="#26C6DA" opacity="0.75">SOIL ANALYZER</text>
+
+  <!-- Horizontal rule lines flanking text -->
+  <line x1="44" y1="480" x2="178" y2="480" stroke="#00E5FF" stroke-width="1" opacity="0.2"/>
+  <line x1="334" y1="480" x2="468" y2="480" stroke="#00E5FF" stroke-width="1" opacity="0.2"/>
+  <circle cx="44" cy="480" r="2.5" fill="#00E5FF" opacity="0.3"/>
+  <circle cx="468" cy="480" r="2.5" fill="#00E5FF" opacity="0.3"/>
+</svg>

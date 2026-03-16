@@ -5,14 +5,10 @@ const Header = ({ lang, setLang, theme, setTheme, showHistory, setShowHistory, h
   <header className="header" role="banner">
     <div className="header-content">
       <div className="header-icon" aria-hidden="true">
-        <img src="/app-icon.png" alt="" style={{ width: '32px', height: '32px', borderRadius: '6px' }}
+        <img src="/app-icon.svg" alt="" style={{ width: '40px', height: '40px', borderRadius: '10px', display: 'block' }}
           onError={(e) => {
             const img = e.target as HTMLImageElement;
-            img.style.display = 'none';
-            const span = document.createElement('span');
-            span.style.fontSize = '1.5rem';
-            span.textContent = '🌱';
-            img.parentNode?.appendChild(span);
+            img.src = '/app-icon.png';
           }} />
       </div>
       <div className="header-title">
