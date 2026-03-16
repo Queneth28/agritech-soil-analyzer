@@ -1,0 +1,42 @@
+services:
+  # ── Backend (Web Service) ─────────────────────────────
+  - type: web
+    name: agritech-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: https://h-frontend-3bey.onrender.com
+      - key: API_KEY_REQUIRED
+        value: false
+      - key: API_KEY
+        value: ""
+      - key: DATABASE_URL
+        value: sqlite:///agritech.db
+      - key: RATE_LIMIT_PER_MINUTE
+        value: 30
+      - key: LOG_LEVEL
+        value: INFO
+
+  # ── Frontend (Static Site) ────────────────────────────
+  - type: web
+    name: agritech-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: build
+    envVars:
+      - key: REACT_APP_API_URL
+        value: https://agritech-backend-l7a0.onrender.com
+      - key: CI
+        value: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
