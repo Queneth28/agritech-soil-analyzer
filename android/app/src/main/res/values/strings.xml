@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Agritech Soil Analyzer</string>
+    <string name="title_activity_main">Agritech Soil Analyzer</string>
+    <string name="package_name">com.agritech.soilanalyzer</string>
+    <string name="custom_url_scheme">com.agritech.soilanalyzer</string>
+</resources>
