@@ -206,7 +206,7 @@ export const TRANSLATIONS = {
     'helpParams.K':  "Régule l'équilibre hydrique et la résistance aux maladies.",
     'helpParams.pH': "Contrôle la disponibilité des nutriments. La plupart des cultures préfèrent 6,5–7,5.",
     'helpParams.EC': "Mesure la salinité. Un EC élevé peut inhiber la germination.",
-    'helpParams.OC': 'Le carbone organique reflète la vie du sol et la rétention d'eau.',
+    'helpParams.OC': "Le carbone organique reflète la vie du sol et la rétention d'eau.",
     'helpParams.S':  "Important pour la synthèse des protéines ; souvent déficient dans les sols sableux.",
     'helpParams.Zn': 'Micronutriment pour la production hormonale ; souvent déficient.',
     'helpParams.Fe': 'Essentiel à la chlorophylle ; peut être bloqué à pH élevé.',
