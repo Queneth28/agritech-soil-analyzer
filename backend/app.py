@@ -20,6 +20,7 @@ WHAT CHANGED vs your original app.py:
 
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
@@ -31,7 +32,7 @@ import time
 import hashlib
 import logging
 from logging.handlers import RotatingFileHandler
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 
 # Load .env file if python-dotenv is installed
@@ -62,6 +63,9 @@ class AppConfig:
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
     RATE_LIMIT = int(os.getenv('RATE_LIMIT_PER_MINUTE', 30))
     CACHE_TTL = int(os.getenv('CACHE_TTL_SECONDS', 300))
+    API_KEY_REQUIRED = os.getenv('API_KEY_REQUIRED', 'false').lower() == 'true'
+    API_KEY = os.getenv('API_KEY', '')
+    DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///agritech.db').replace('postgres://', 'postgresql://', 1)
 
 
 # ============================================================================
@@ -546,8 +550,27 @@ def validate_soil_input(data):
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = AppConfig.SECRET_KEY
+app.config['SQLALCHEMY_DATABASE_URI'] = AppConfig.DATABASE_URL
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 CORS(app, origins=AppConfig.CORS_ORIGINS.split(','))
 setup_logging(app)
+
+db = SQLAlchemy(app)
+
+
+class PredictionHistory(db.Model):
+    __tablename__ = 'prediction_history'
+    id = db.Column(db.Integer, primary_key=True)
+    analysis_id = db.Column(db.String(12), unique=True, nullable=False)
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    soil_data = db.Column(db.Text, nullable=False)
+    result = db.Column(db.Text, nullable=False)
+    suitability = db.Column(db.String(20))
+    health_score = db.Column(db.Float)
+
+
+with app.app_context():
+    db.create_all()
 
 rate_limiter = RateLimiter(AppConfig.RATE_LIMIT)
 request_counter = {'total': 0, 'predictions': 0}
@@ -569,7 +592,17 @@ else:
 # ============================================================================
 
 @app.before_request
-def before_request():
+def enforce_api_key():
+    if not AppConfig.API_KEY_REQUIRED:
+        return
+    if request.path == '/api/health':
+        return
+    key = request.headers.get('X-API-Key', '')
+    if not key or key != AppConfig.API_KEY:
+        return jsonify({'error': 'Unauthorized', 'message': 'Missing or invalid X-API-Key header'}), 401
+
+@app.before_request
+def enforce_rate_limit():
     g.start_time = time.time()
     request_counter['total'] += 1
     if not rate_limiter.is_allowed(request.remote_addr):
@@ -642,6 +675,20 @@ def predict_suitability():
 
         if prediction_cache is not None:
             prediction_cache[make_cache_key(soil_data)] = result
+
+        try:
+            record = PredictionHistory(
+                analysis_id=result['analysis_id'],
+                soil_data=json.dumps(soil_data),
+                result=json.dumps(result),
+                suitability=result['suitability'],
+                health_score=result.get('soil_health_score', {}).get('overall_score'),
+            )
+            db.session.add(record)
+            db.session.commit()
+        except Exception as db_err:
+            app.logger.warning(f"DB save failed (non-fatal): {db_err}")
+            db.session.rollback()
 
         app.logger.info(
             f"Prediction: {result['suitability']} ({result['confidence']}) "
@@ -745,6 +792,30 @@ def soil_health_score_endpoint():
         raise
     except Exception as e:
         raise APIError(f"Health score failed: {str(e)}")
+
+
+# --- 8. Analysis History ---
+@app.route('/api/history', methods=['GET'])
+def get_history():
+    limit = min(int(request.args.get('limit', 20)), 100)
+    rows = PredictionHistory.query.order_by(PredictionHistory.timestamp.desc()).limit(limit).all()
+    return jsonify([{
+        'id': r.id,
+        'analysis_id': r.analysis_id,
+        'timestamp': r.timestamp.isoformat(),
+        'suitability': r.suitability,
+        'health_score': r.health_score,
+        'soil_data': json.loads(r.soil_data),
+        'result': json.loads(r.result),
+    } for r in rows]), 200
+
+
+@app.route('/api/history/<int:record_id>', methods=['DELETE'])
+def delete_history(record_id):
+    row = PredictionHistory.query.get_or_404(record_id)
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify({'deleted': record_id}), 200
 
 
 # ============================================================================
