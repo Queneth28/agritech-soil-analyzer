@@ -28,9 +28,8 @@ services:
   - type: web
     name: agritech-frontend
     runtime: static
-    rootDir: frontend
     buildCommand: npm install --legacy-peer-deps && npm run build
-    staticPublishPath: build
+    staticPublishPath: frontend/build
     envVars:
       - key: REACT_APP_API_URL
         value: https://agritech-backend-l7a0.onrender.com
