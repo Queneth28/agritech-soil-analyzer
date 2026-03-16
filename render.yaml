@@ -12,7 +12,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: CORS_ORIGINS
-        value: https://h-frontend-3bey.onrender.com
+        value: https://agritech-frontend-3bey.onrender.com
       - key: API_KEY_REQUIRED
         value: false
       - key: API_KEY
