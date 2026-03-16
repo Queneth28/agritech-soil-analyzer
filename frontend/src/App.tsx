@@ -13,7 +13,7 @@ import InputPanel from './components/InputPanel';
 import ResultsPanel from './components/ResultsPanel';
 import HelpPanel from './components/HelpPanel';
 
-const SAMPLE_SOIL = { N:'140', P:'35', K:'180', pH:'6.5', EC:'1.2', OC:'2.1', S:'18', Zn:'1.8', Fe:'8', Cu:'0.9', Mn:'5', B:'0.7' };
+const SAMPLE_SOIL = { N:'180', P:'8.5', K:'520', pH:'7.5', EC:'0.6', OC:'0.9', S:'18', Zn:'0.3', Fe:'0.6', Cu:'1.2', Mn:'5.5', B:'1.2' };
 
 function App() {
   const [lang, setLang] = useState('en');
@@ -138,7 +138,10 @@ function App() {
     }
   }, [soilData, isFormValid, t, saveToHistory, addToast]);
 
-  const loadSample = useCallback(() => setSoilData(SAMPLE_SOIL), []);
+  const loadSample = useCallback(() => {
+    setSoilData(SAMPLE_SOIL);
+    setErrors(SOIL_PARAMETERS.reduce((acc, p) => ({ ...acc, [p.id]: validateField(p.id, SAMPLE_SOIL[p.id]) }), {}));
+  }, [validateField]);
   const clearAll = useCallback(() => setSoilData(SOIL_PARAMETERS.reduce((acc, p) => ({ ...acc, [p.id]: '' }), {})), []);
 
   const fertilizers = useMemo(() => {
