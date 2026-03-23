@@ -38,8 +38,17 @@ try:
     HAS_XGB = True
 except ImportError:
     HAS_XGB = False
-    print("⚠ XGBoost not installed. Will train Random Forest only.")
+    print("⚠ XGBoost not installed. Will skip XGBoost.")
     print("  Install with: pip install xgboost")
+
+# Try importing LightGBM
+try:
+    import lightgbm as lgb
+    HAS_LGB = True
+except ImportError:
+    HAS_LGB = False
+    print("⚠ LightGBM not installed. Will skip LightGBM.")
+    print("  Install with: pip install lightgbm")
 
 # Try importing SHAP
 try:
@@ -92,6 +101,19 @@ class Config:
         'colsample_bytree': uniform(0.6, 0.4),
         'min_child_weight': randint(1, 8),
         'gamma': uniform(0, 0.5),
+    }
+
+    # LightGBM hyperparameter search space
+    LGB_PARAM_DIST = {
+        'n_estimators': randint(80, 300),
+        'max_depth': randint(3, 12),
+        'learning_rate': uniform(0.01, 0.3),
+        'num_leaves': randint(20, 150),
+        'subsample': uniform(0.6, 0.4),
+        'colsample_bytree': uniform(0.6, 0.4),
+        'min_child_samples': randint(5, 30),
+        'reg_alpha': uniform(0, 0.5),
+        'reg_lambda': uniform(0, 0.5),
     }
 
 
@@ -289,6 +311,39 @@ def train_xgboost(X_train, y_train):
     return search.best_estimator_, search.best_params_, search.best_score_
 
 
+def train_lightgbm(X_train, y_train):
+    """Train LightGBM with hyperparameter tuning."""
+    if not HAS_LGB:
+        return None, {}, 0.0
+
+    print(f"\n🚀 Training LightGBM...")
+    print(f"   Searching {Config.TUNING_ITERATIONS} parameter combinations...")
+
+    n_classes = len(np.unique(y_train))
+    base = lgb.LGBMClassifier(
+        objective='multiclass' if n_classes > 2 else 'binary',
+        num_class=n_classes if n_classes > 2 else None,
+        random_state=Config.RANDOM_STATE,
+        class_weight='balanced',
+        verbosity=-1,
+        n_jobs=-1,
+    )
+    search = RandomizedSearchCV(
+        base, Config.LGB_PARAM_DIST,
+        n_iter=Config.TUNING_ITERATIONS,
+        cv=StratifiedKFold(n_splits=Config.CV_FOLDS, shuffle=True,
+                           random_state=Config.RANDOM_STATE),
+        scoring='f1_weighted',
+        random_state=Config.RANDOM_STATE,
+        n_jobs=-1, verbose=0
+    )
+    search.fit(X_train, y_train)
+
+    print(f"   ✓ Best CV F1: {search.best_score_:.4f}")
+    print(f"   ✓ Best params: {search.best_params_}")
+    return search.best_estimator_, search.best_params_, search.best_score_
+
+
 # ============================================================================
 # STEP 4: EVALUATE
 # ============================================================================
@@ -374,35 +429,33 @@ def compute_shap_explainer(model, X_train_scaled, name):
 # STEP 6: SAVE PLOTS
 # ============================================================================
 
-def save_plots(rf_results, xgb_results, winner_name, save_path='models/plots'):
+def save_plots(all_results, winner_name, save_path='models/plots'):
     """Generate and save comparison plots."""
     os.makedirs(save_path, exist_ok=True)
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    # 1. Model comparison
+    # 1. Model comparison bar chart
     metrics = ['test_accuracy', 'f1_weighted', 'precision', 'recall']
-    rf_vals = [rf_results[m] for m in metrics]
+    colors = {'Random Forest': '#2196F3', 'XGBoost': '#FF9800', 'LightGBM': '#4CAF50'}
+    active = [(name, res) for name, res in all_results.items() if res is not None]
+    x = np.arange(len(metrics))
+    w = 0.8 / len(active)
 
-    if xgb_results:
-        xgb_vals = [xgb_results[m] for m in metrics]
-        x = np.arange(len(metrics))
-        w = 0.35
-        axes[0].bar(x - w/2, rf_vals, w, label='Random Forest', color='#2196F3', alpha=0.85)
-        axes[0].bar(x + w/2, xgb_vals, w, label='XGBoost', color='#FF9800', alpha=0.85)
-        axes[0].legend()
-    else:
-        x = np.arange(len(metrics))
-        axes[0].bar(x, rf_vals, color='#2196F3', alpha=0.85)
+    for i, (name, res) in enumerate(active):
+        vals = [res[m] for m in metrics]
+        offset = (i - len(active) / 2 + 0.5) * w
+        axes[0].bar(x + offset, vals, w, label=name, color=colors.get(name, '#9C27B0'), alpha=0.85)
 
-    axes[0].set_xticks(x if not xgb_results else x)
+    axes[0].set_xticks(x)
     axes[0].set_xticklabels(['Accuracy', 'F1', 'Precision', 'Recall'])
     axes[0].set_ylabel('Score')
     axes[0].set_title(f'Model Comparison (Winner: {winner_name})')
     axes[0].set_ylim(0, 1.05)
+    axes[0].legend()
 
-    # 2. Confusion matrix
-    winner_results = rf_results if 'Random Forest' in winner_name else (xgb_results or rf_results)
+    # 2. Confusion matrix for winner
+    winner_results = all_results[winner_name]
     n_classes = len(winner_results['confusion_matrix'])
     labels = [Config.CLASS_NAMES.get(i, str(i)) for i in range(n_classes)]
     sns.heatmap(winner_results['confusion_matrix'], annot=True, fmt='d', cmap='Blues',
@@ -468,7 +521,7 @@ def save_everything(model, scaler, shap_explainer, metadata, save_dir='models'):
 def main():
     print("=" * 60)
     print("🌱 AGRITECH SOIL ANALYZER — MODEL TRAINING")
-    print("   Random Forest + XGBoost | Tuning | SHAP")
+    print("   Random Forest + XGBoost + LightGBM | Tuning | SHAP")
     print("=" * 60)
 
     # 1. Load
@@ -477,25 +530,38 @@ def main():
     # 2. Preprocess
     X_tr, X_te, y_tr, y_te, scaler = preprocess_data(df)
 
-    # 3. Train both models
-    rf_model, rf_params, rf_cv = train_random_forest(X_tr, y_tr)
+    # 3. Train all three models
+    rf_model, rf_params, _ = train_random_forest(X_tr, y_tr)
 
-    xgb_model, xgb_params, xgb_cv = None, {}, 0.0
+    xgb_model, xgb_params, _ = None, {}, 0.0
     if HAS_XGB:
-        xgb_model, xgb_params, xgb_cv = train_xgboost(X_tr, y_tr)
+        xgb_model, xgb_params, _ = train_xgboost(X_tr, y_tr)
 
-    # 4. Evaluate both
+    lgb_model, lgb_params, _ = None, {}, 0.0
+    if HAS_LGB:
+        lgb_model, lgb_params, _ = train_lightgbm(X_tr, y_tr)
+
+    # 4. Evaluate all
     rf_res = evaluate_model(rf_model, "Random Forest", X_tr, X_te, y_tr, y_te)
 
     xgb_res = None
     if xgb_model is not None:
         xgb_res = evaluate_model(xgb_model, "XGBoost", X_tr, X_te, y_tr, y_te)
 
-    # 5. Pick the winner
-    if xgb_res and xgb_res['f1_weighted'] > rf_res['f1_weighted']:
-        winner, w_name, w_res, w_params = xgb_model, "XGBoost", xgb_res, xgb_params
-    else:
-        winner, w_name, w_res, w_params = rf_model, "Random Forest", rf_res, rf_params
+    lgb_res = None
+    if lgb_model is not None:
+        lgb_res = evaluate_model(lgb_model, "LightGBM", X_tr, X_te, y_tr, y_te)
+
+    # 5. Pick the winner (highest F1)
+    candidates = [
+        (rf_model,  "Random Forest", rf_res,  rf_params),
+        (xgb_model, "XGBoost",       xgb_res, xgb_params),
+        (lgb_model, "LightGBM",      lgb_res, lgb_params),
+    ]
+    winner, w_name, w_res, w_params = max(
+        [(m, n, r, p) for m, n, r, p in candidates if r is not None],
+        key=lambda x: x[2]['f1_weighted']
+    )
 
     print(f"\n{'=' * 60}")
     print(f"🏆 WINNER: {w_name}")
@@ -507,8 +573,9 @@ def main():
     shap_exp = compute_shap_explainer(winner, X_tr, w_name)
 
     # 7. Plots
+    all_results = {'Random Forest': rf_res, 'XGBoost': xgb_res, 'LightGBM': lgb_res}
     try:
-        save_plots(rf_res, xgb_res, w_name)
+        save_plots(all_results, w_name)
     except Exception as e:
         print(f"   ⚠ Plots skipped: {e}")
 
