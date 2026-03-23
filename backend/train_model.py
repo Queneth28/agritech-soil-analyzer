@@ -20,6 +20,7 @@ import numpy as np
 from sklearn.model_selection import (
     train_test_split, cross_val_score, StratifiedKFold, RandomizedSearchCV
 )
+from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
@@ -251,6 +252,15 @@ def preprocess_data(df):
         stratify=y
     )
     print(f"   → Train: {len(X_train)} samples | Test: {len(X_test)} samples")
+
+    # Encode labels to [0, n_classes-1] — required by XGBoost 2.0
+    le = LabelEncoder()
+    y_train = le.fit_transform(y_train)
+    y_test  = le.transform(y_test)
+    # Update CLASS_NAMES to reflect the actual encoded order
+    Config.CLASS_NAMES = {i: Config.CLASS_NAMES.get(cls, str(cls))
+                          for i, cls in enumerate(le.classes_)}
+    print(f"   → Labels encoded: {list(le.classes_)} → [0..{len(le.classes_)-1}]")
 
     # Scale features (Z-score normalization)
     scaler = StandardScaler()
