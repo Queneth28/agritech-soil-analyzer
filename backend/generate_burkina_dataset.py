@@ -453,73 +453,132 @@ def generate_profile(soil_type_def):
     return profile
 
 
-def assign_crop(soil, noise_std=0.04):
+def assign_crop(soil, noise_std=0.015, min_confidence=0.52, min_margin=0.10):
     """
     Score all crops for a soil profile and return the best-fit crop.
-    A small random noise is added to scores to simulate real-world variation
-    and prevent the dataset from being perfectly rule-based.
+
+    Noise is kept very low (1.5%) — just enough to prevent a perfectly
+    rule-based dataset while still producing learnable, consistent labels.
+
+    Returns None if the winning crop's score is too low (min_confidence)
+    or if the top two crops are too close (min_margin). These ambiguous
+    samples are discarded — they would add noise to training, not signal.
     """
     scores = {}
     for crop_id, crop_def in CROPS.items():
         base_score = crop_suitability(soil, crop_def)
-        # Add realistic noise (±4%) — real fields deviate from pure rules
         noise = np.random.normal(0, noise_std)
         scores[crop_id] = np.clip(base_score + noise, 0.0, 1.0)
 
+    sorted_scores = sorted(scores.values(), reverse=True)
+    top_score   = sorted_scores[0]
+    second_score = sorted_scores[1]
+    margin = top_score - second_score
+
+    # Discard ambiguous samples — no clear winner
+    if top_score < min_confidence or margin < min_margin:
+        return None, None, scores
+
     best_crop_id = max(scores, key=scores.get)
-    return best_crop_id, scores[best_crop_id], scores
+    return best_crop_id, top_score, scores
 
 
 # ============================================================================
 # MAIN GENERATOR
 # ============================================================================
 
-def generate_dataset(n_samples=5000, output_path='soil_data.csv'):
+def generate_dataset(n_samples=6000, output_path='soil_data.csv'):
     """
     Generate a full labeled dataset for Burkina Faso crop recommendation.
+
+    Generates 4x the target samples, filters out ambiguous ones, then
+    ensures every crop class has at least min_per_class samples by
+    running additional targeted generation for underrepresented crops.
     """
+    MIN_PER_CLASS = 400   # minimum samples per crop class
+    OVERSAMPLE    = 4     # generate this many times n_samples before filtering
+
     print("=" * 60)
     print("BURKINA FASO CROP RECOMMENDATION DATASET GENERATOR")
     print(f"Target: {n_samples} samples — Sahel / Burkina Faso")
     print("=" * 60)
 
-    # Determine how many samples per soil type
     soil_type_names = list(SOIL_TYPES.keys())
     proportions     = [SOIL_TYPES[t]['proportion'] for t in soil_type_names]
-    counts          = [int(p * n_samples) for p in proportions]
-    # Assign remainder to most common type
-    counts[0] += n_samples - sum(counts)
 
-    print("\nSoil type distribution:")
-    for name, count in zip(soil_type_names, counts):
-        print(f"  {name:<12} {count:>5} samples  — {SOIL_TYPES[name]['description']}")
+    def _generate_batch(total):
+        counts = [int(p * total) for p in proportions]
+        counts[0] += total - sum(counts)
+        rows = []
+        discarded = 0
+        for soil_type_name, count in zip(soil_type_names, counts):
+            soil_type_def = SOIL_TYPES[soil_type_name]
+            for _ in range(count):
+                profile = generate_profile(soil_type_def)
+                crop_id, top_score, _ = assign_crop(profile)
+                if crop_id is None:
+                    discarded += 1
+                    continue
+                row = dict(profile)
+                row['Output']     = crop_id
+                row['crop_name']  = CROPS[crop_id]['name']
+                row['soil_type']  = soil_type_name
+                row['confidence'] = round(top_score, 3)
+                rows.append(row)
+        return rows, discarded
 
-    rows = []
-    for soil_type_name, count in zip(soil_type_names, counts):
-        soil_type_def = SOIL_TYPES[soil_type_name]
-        for _ in range(count):
-            profile = generate_profile(soil_type_def)
-            crop_id, top_score, all_scores = assign_crop(profile)
-            row = dict(profile)
-            row['Output']    = crop_id
-            row['crop_name'] = CROPS[crop_id]['name']
-            row['soil_type'] = soil_type_name
-            row['confidence'] = round(top_score, 3)
-            rows.append(row)
+    # Phase 1: generate large batch and filter
+    print(f"\nPhase 1: generating {n_samples * OVERSAMPLE} candidates...")
+    rows, discarded = _generate_batch(n_samples * OVERSAMPLE)
+    print(f"  Kept {len(rows)} clear samples, discarded {discarded} ambiguous ones")
 
     df = pd.DataFrame(rows)
+
+    # Phase 2: top up underrepresented classes
+    print("Phase 2: balancing underrepresented crops...")
+    for crop_id in sorted(CROPS.keys()):
+        current = (df['Output'] == crop_id).sum()
+        if current < MIN_PER_CLASS:
+            needed = MIN_PER_CLASS - current
+            print(f"  {CROPS[crop_id]['name']:<12} has {current} — generating {needed} more")
+            extra_rows = []
+            attempts = 0
+            # Generate from all soil types until we have enough
+            while len(extra_rows) < needed and attempts < needed * 50:
+                soil_type_name = np.random.choice(soil_type_names, p=proportions)
+                profile = generate_profile(SOIL_TYPES[soil_type_name])
+                c_id, top_score, _ = assign_crop(profile)
+                if c_id == crop_id:
+                    row = dict(profile)
+                    row['Output']     = crop_id
+                    row['crop_name']  = CROPS[crop_id]['name']
+                    row['soil_type']  = soil_type_name
+                    row['confidence'] = round(top_score, 3)
+                    extra_rows.append(row)
+                attempts += 1
+            if extra_rows:
+                df = pd.concat([df, pd.DataFrame(extra_rows)], ignore_index=True)
+
+    # Phase 3: trim to n_samples, keeping class balance
+    if len(df) > n_samples:
+        df = df.groupby('Output', group_keys=False).apply(
+            lambda x: x.sample(min(len(x), max(MIN_PER_CLASS, int(n_samples * len(x) / len(df)))),
+                                random_state=RANDOM_STATE)
+        )
+        # If still over, random trim
+        if len(df) > n_samples:
+            df = df.sample(n_samples, random_state=RANDOM_STATE)
+
     df = df.sample(frac=1, random_state=RANDOM_STATE).reset_index(drop=True)
+    total = len(df)
 
     # ── Class distribution report ─────────────────────────────────
-    print("\nCrop distribution (recommended crop counts):")
-    dist = df['crop_name'].value_counts().sort_index()
-    for crop_name, count in df.groupby('Output')['crop_name'].first().items():
-        n = (df['Output'] == crop_name).sum()
+    print(f"\nFinal crop distribution ({total} samples):")
     for crop_id in sorted(CROPS.keys()):
         name  = CROPS[crop_id]['name']
         count = (df['Output'] == crop_id).sum()
-        bar   = '█' * int(count / n_samples * 40)
-        pct   = count / n_samples * 100
+        bar   = '█' * int(count / total * 40)
+        pct   = count / total * 100
         print(f"  {crop_id}  {name:<12} {count:>5} ({pct:4.1f}%)  {bar}")
 
     # ── Parameter stats ───────────────────────────────────────────
@@ -528,17 +587,16 @@ def generate_dataset(n_samples=5000, output_path='soil_data.csv'):
     print(stats.round(2).to_string())
 
     # ── Save ─────────────────────────────────────────────────────
-    # Save full version with metadata
     full_path = output_path.replace('.csv', '_full.csv')
     df.to_csv(full_path, index=False)
     print(f"\nFull dataset (with soil_type, confidence) → {full_path}")
 
-    # Save training version (only features + Output, as train_model.py expects)
     train_cols = FEATURES + ['Output']
     df[train_cols].to_csv(output_path, index=False)
     print(f"Training dataset → {output_path}")
-    print(f"\nTotal samples: {len(df)}")
-    print(f"Classes: {df['Output'].nunique()} crops")
+    print(f"\nTotal samples : {total}")
+    print(f"Classes       : {df['Output'].nunique()} crops")
+    print(f"Avg confidence: {df['confidence'].mean():.3f} (higher = cleaner labels)")
     print("=" * 60)
 
     return df

@@ -74,7 +74,7 @@ class Config:
     RANDOM_STATE = 42
     TEST_SIZE = 0.2
     CV_FOLDS = 5
-    TUNING_ITERATIONS = 50   # How many hyperparameter combos to try
+    TUNING_ITERATIONS = 100  # How many hyperparameter combos to try
 
     # Your 12 soil features (must match your CSV columns)
     FEATURES = ['N', 'P', 'K', 'pH', 'EC', 'OC', 'S', 'Zn', 'Fe', 'Cu', 'Mn', 'B']
@@ -95,33 +95,36 @@ class Config:
 
     # Random Forest hyperparameter search space
     RF_PARAM_DIST = {
-        'n_estimators': randint(80, 300),
-        'max_depth': [None, 10, 20, 30, 40],
-        'min_samples_split': randint(2, 12),
-        'min_samples_leaf': randint(1, 8),
-        'max_features': ['sqrt', 'log2', None],
+        'n_estimators': randint(200, 600),
+        'max_depth': [None, 15, 25, 35, 50],
+        'min_samples_split': randint(2, 10),
+        'min_samples_leaf': randint(1, 6),
+        'max_features': ['sqrt', 'log2', 0.3, 0.5],
+        'criterion': ['gini', 'entropy'],
     }
 
     # XGBoost hyperparameter search space
     XGB_PARAM_DIST = {
-        'n_estimators': randint(80, 300),
-        'max_depth': randint(3, 12),
-        'learning_rate': uniform(0.01, 0.3),
-        'subsample': uniform(0.6, 0.4),
+        'n_estimators': randint(200, 600),
+        'max_depth': randint(3, 10),
+        'learning_rate': uniform(0.01, 0.2),
+        'subsample': uniform(0.7, 0.3),
         'colsample_bytree': uniform(0.6, 0.4),
-        'min_child_weight': randint(1, 8),
-        'gamma': uniform(0, 0.5),
+        'min_child_weight': randint(1, 6),
+        'gamma': uniform(0, 0.3),
+        'reg_alpha': uniform(0, 0.5),
+        'reg_lambda': uniform(0.5, 1.5),
     }
 
     # LightGBM hyperparameter search space
     LGB_PARAM_DIST = {
-        'n_estimators': randint(80, 300),
-        'max_depth': randint(3, 12),
-        'learning_rate': uniform(0.01, 0.3),
-        'num_leaves': randint(20, 150),
-        'subsample': uniform(0.6, 0.4),
+        'n_estimators': randint(200, 600),
+        'max_depth': randint(4, 12),
+        'learning_rate': uniform(0.01, 0.2),
+        'num_leaves': randint(31, 200),
+        'subsample': uniform(0.7, 0.3),
         'colsample_bytree': uniform(0.6, 0.4),
-        'min_child_samples': randint(5, 30),
+        'min_child_samples': randint(5, 25),
         'reg_alpha': uniform(0, 0.5),
         'reg_lambda': uniform(0, 0.5),
     }
