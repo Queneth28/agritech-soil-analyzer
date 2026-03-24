@@ -39,20 +39,58 @@ const ResultsPanel = ({ result, loading, soilData, lang, t, fertilizers, exportT
 
         <NutrientChart soilData={soilData} t={t} lang={lang} />
 
-        <div className={`result-card suitability-card ${result.suitability.toLowerCase()}`} role="region" aria-label={t.suitabilityLabel}>
-          <div className="suitability-header">
-            <div>
-              <p className="suitability-level">{t.suitabilityLabel}</p>
-              <h2 className="suitability-value">{t[result.suitability.toLowerCase()] || result.suitability}</h2>
+        {result.isModelCropRecommendation ? (
+          /* ── Crop Recommendation Card (new model) ── */
+          <div className="result-card suitability-card crop-recommendation" role="region" aria-label={t.recommendedCropLabel}>
+            <div className="suitability-header">
+              <div>
+                <span className="ml-badge">{t.mlCropBadge}</span>
+                <p className="suitability-level">{t.recommendedCropLabel}</p>
+                <h2 className="suitability-value crop-name-big">
+                  {(t.cropEmojis as any)?.[result.recommendedCrop] || '🌱'} {result.recommendedCrop}
+                </h2>
+              </div>
+              <CheckCircle2 size={48} aria-hidden="true" />
             </div>
-            <CheckCircle2 size={48} aria-hidden="true" />
+            <p className="suitability-summary">{result.summary}</p>
+            <div className="confidence-badges">
+              <div className="confidence-badge"><p>{t.confidence}</p><div className="value">{result.confidence}</div></div>
+              <div className="confidence-badge"><p>{t.score}</p><div className="value">{result.confidenceScore}/100</div></div>
+            </div>
+            {result.probabilities && Object.keys(result.probabilities).length > 1 && (
+              <div className="crop-probabilities">
+                <p className="crop-prob-title">{t.topCropProbabilities}</p>
+                {Object.entries(result.probabilities).slice(0, 4).map(([crop, prob]: [string, any]) => (
+                  <div key={crop} className="crop-prob-row">
+                    <span className="crop-prob-name">
+                      {(t.cropEmojis as any)?.[crop] || '🌱'} {crop}
+                    </span>
+                    <div className="crop-prob-bar-wrap">
+                      <div className="crop-prob-bar" style={{ width: `${Math.round(prob * 100)}%` }} />
+                    </div>
+                    <span className="crop-prob-pct">{Math.round(prob * 100)}%</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <p className="suitability-summary">{translateSummary(result.suitability)}</p>
-          <div className="confidence-badges">
-            <div className="confidence-badge"><p>{t.confidence}</p><div className="value">{result.confidence}</div></div>
-            <div className="confidence-badge"><p>{t.score}</p><div className="value">{result.confidenceScore}/100</div></div>
+        ) : (
+          /* ── Legacy Soil Quality Card ── */
+          <div className={`result-card suitability-card ${result.suitability.toLowerCase()}`} role="region" aria-label={t.suitabilityLabel}>
+            <div className="suitability-header">
+              <div>
+                <p className="suitability-level">{t.suitabilityLabel}</p>
+                <h2 className="suitability-value">{t[result.suitability.toLowerCase()] || result.suitability}</h2>
+              </div>
+              <CheckCircle2 size={48} aria-hidden="true" />
+            </div>
+            <p className="suitability-summary">{translateSummary(result.suitability)}</p>
+            <div className="confidence-badges">
+              <div className="confidence-badge"><p>{t.confidence}</p><div className="value">{result.confidence}</div></div>
+              <div className="confidence-badge"><p>{t.score}</p><div className="value">{result.confidenceScore}/100</div></div>
+            </div>
           </div>
-        </div>
+        )}
 
         <ShapExplanation shapData={result.shap_explanation} t={t} />
 

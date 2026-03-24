@@ -283,6 +283,9 @@ class SoilFertilityModel:
         if os.path.exists(meta_path):
             with open(meta_path) as f:
                 self.metadata = json.load(f)
+            # Load class names from metadata if available
+            if 'class_names' in self.metadata:
+                self.class_names = {int(k): v for k, v in self.metadata['class_names'].items()}
 
         return True
 
@@ -482,28 +485,55 @@ def analyze_soil(soil_data, model):
     if not recs:
         recs = ["Maintain current management", "Monitor annually", "Consider crop rotation"]
 
-    level = prediction['class_name']
-    summaries = {
-        'High': "Excellent conditions with well-balanced nutrients.",
-        'Medium': "Good potential with some areas for improvement.",
-        'Low': "Significant amendments needed to improve fertility.",
-    }
+    recommended_crop = prediction['class_name']
+
+    # Detect model type: crop recommendation vs legacy soil quality
+    quality_classes = {'Low', 'Medium', 'High'}
+    is_crop_model = recommended_crop not in quality_classes
+
+    if is_crop_model:
+        summary = (f"Based on your soil profile, {recommended_crop} is the most suitable crop "
+                   f"with {int(prediction['confidence'] * 100)}% confidence. "
+                   f"{'; '.join(recs[:2]) if recs else 'Soil amendments may improve yield.'}")
+    else:
+        summaries = {
+            'High':   "Excellent conditions with well-balanced nutrients.",
+            'Medium': "Good potential with some areas for improvement.",
+            'Low':    "Significant amendments needed to improve fertility.",
+        }
+        summary = f"Soil analysis indicates {recommended_crop.lower()} suitability. {summaries.get(recommended_crop, '')}"
+
+    # Top crop probabilities sorted descending
+    sorted_probs = dict(sorted(prediction['probabilities'].items(),
+                               key=lambda x: x[1], reverse=True))
+
+    all_crops = recommend_crops(soil_data)
+
+    # If crop model: put the ML-recommended crop first in the list
+    if is_crop_model:
+        ml_crop_entry = next(
+            (c for c in all_crops if c['name'].lower() == recommended_crop.lower()), None
+        )
+        if ml_crop_entry:
+            all_crops = [ml_crop_entry] + [c for c in all_crops if c['name'] != ml_crop_entry['name']]
 
     return {
         'analysis_id': hashlib.md5(
             f"{json.dumps(soil_data, sort_keys=True)}{time.time()}".encode()
         ).hexdigest()[:12],
         'timestamp': datetime.now().isoformat(),
-        'suitability': level,
+        'suitability': recommended_crop,
+        'recommendedCrop': recommended_crop,
+        'isModelCropRecommendation': is_crop_model,
         'confidence': f"{int(prediction['confidence'] * 100)}%",
         'confidenceScore': int(prediction['confidence'] * 100),
-        'probabilities': prediction['probabilities'],
+        'probabilities': sorted_probs,
         'keyFactors': key_factors,
         'deficiencies': deficiencies,
         'strengths': strengths,
         'recommendations': recs,
-        'summary': f"Soil analysis indicates {level.lower()} suitability. {summaries.get(level, '')}",
-        'recommendedCrops': recommend_crops(soil_data),
+        'summary': summary,
+        'recommendedCrops': all_crops,
         'shap_explanation': prediction.get('shap_explanation', {}),
         'soil_health_score': calculate_soil_health_score(soil_data),
     }

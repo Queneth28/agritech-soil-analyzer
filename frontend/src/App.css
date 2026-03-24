@@ -254,6 +254,24 @@ html { overflow-x: hidden; }
 }
 .suitability-card.medium { background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(217,119,6,0.1)); border-color: rgba(245,158,11,0.3); }
 .suitability-card.low { background: linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1)); border-color: rgba(239,68,68,0.3); }
+.suitability-card.crop-recommendation {
+  background: linear-gradient(135deg, rgba(46,125,50,0.18), rgba(0,105,100,0.12));
+  border-color: rgba(46,125,50,0.4); box-shadow: 0 12px 40px rgba(46,125,50,0.2);
+}
+.ml-badge {
+  display: inline-block; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; background: rgba(46,125,50,0.25); color: #69f0ae;
+  border: 1px solid rgba(105,240,174,0.3); border-radius: 6px;
+  padding: 0.2rem 0.55rem; margin-bottom: 0.5rem;
+}
+.crop-name-big { font-size: 2.6rem; }
+.crop-probabilities { margin-top: 1.5rem; border-top: 1px solid var(--border-medium); padding-top: 1rem; }
+.crop-prob-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--accent-light); font-weight: 700; margin-bottom: 0.75rem; }
+.crop-prob-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+.crop-prob-name { font-size: 0.9rem; font-weight: 600; color: var(--text-primary); min-width: 110px; }
+.crop-prob-bar-wrap { flex: 1; height: 8px; background: var(--accent-bg); border-radius: 4px; overflow: hidden; }
+.crop-prob-bar { height: 100%; background: linear-gradient(90deg, #4caf50, #69f0ae); border-radius: 4px; transition: width 0.6s ease; }
+.crop-prob-pct { font-size: 0.85rem; font-weight: 700; color: #69f0ae; min-width: 38px; text-align: right; }
 .suitability-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; gap: 1rem; }
 .suitability-level { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent-light); font-weight: 700; margin-bottom: 0.5rem; }
 .suitability-value { font-size: 3rem; font-weight: 800; line-height: 1; color: var(--text-primary); letter-spacing: -0.02em; }
