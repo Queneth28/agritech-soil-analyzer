@@ -176,10 +176,81 @@ def test_calculate_soil_health_score_poor_soil():
 
 def test_calculate_crop_suitability():
     from app import calculate_crop_suitability, CROP_DATABASE
-    soil = {"N": 200, "P": 8.5, "K": 550, "pH": 6.8, "OC": 1.15}
-    wheat = next(c for c in CROP_DATABASE if c['name'] == 'Wheat')
-    result = calculate_crop_suitability(soil, wheat)
+    soil = {"N": 125, "P": 6.5, "K": 255, "pH": 6.5, "EC": 0.34, "OC": 0.58,
+            "S": 12, "Zn": 0.62, "Fe": 2.1, "Cu": 0.72, "Mn": 4.2, "B": 0.32}
+    sorgho = next(c for c in CROP_DATABASE if c['name'] == 'Sorgho')
+    result = calculate_crop_suitability(soil, sorgho)
     assert 0 <= result['suitabilityScore'] <= 100
     assert result['priority'] in ('Excellent', 'Good', 'Fair')
     assert 'matchedParameters' in result
     assert 'potentialChallenges' in result
+
+
+# ============================================================================
+# AGRONOMIC CONSISTENCY — Burkina Faso context
+# ============================================================================
+
+LIXISOL = {"N": 90, "P": 4.5, "K": 175, "pH": 6.3, "EC": 0.28, "OC": 0.35,
+           "S": 8, "Zn": 0.38, "Fe": 1.4, "Cu": 0.45, "Mn": 2.8, "B": 0.18}
+
+
+def test_crop_database_matches_ml_classes():
+    """Rule-based crops must be the same set the ML dataset is labelled with."""
+    from app import CROP_DATABASE
+    from crop_profiles import CROPS
+    assert {c['name'] for c in CROP_DATABASE} == {c['name'] for c in CROPS.values()}
+
+
+def test_rule_score_matches_dataset_scoring():
+    from app import calculate_crop_suitability, CROP_DATABASE
+    from crop_profiles import CROPS, crop_suitability
+    mil_rules = next(c for c in CROP_DATABASE if c['name'] == 'Mil')
+    mil_data = next(c for c in CROPS.values() if c['name'] == 'Mil')
+    assert calculate_crop_suitability(LIXISOL, mil_rules)['suitabilityScore'] == \
+        int(crop_suitability(LIXISOL, mil_data) * 100)
+
+
+def test_poor_sandy_soil_favours_millet_and_sorghum():
+    from app import recommend_crops
+    top3 = [c['name'] for c in recommend_crops(LIXISOL)[:3]]
+    assert 'Mil' in top3 or 'Sorgho' in top3
+
+
+def test_no_liming_advice_at_neutral_ph():
+    from app import fertilizer_recommendations
+    recs = ' '.join(fertilizer_recommendations(LIXISOL)).lower()
+    assert 'raise ph' not in recs
+    assert 'organic matter' in recs      # OC 0.35 % is low
+    assert 'phosph' in recs              # P 4.5 is low
+
+
+def test_liming_advice_on_acid_soil():
+    from app import fertilizer_recommendations
+    recs = ' '.join(fertilizer_recommendations({**LIXISOL, 'pH': 5.0})).lower()
+    assert 'raise ph' in recs
+
+
+def test_health_score_penalises_acid_ph_by_distance():
+    from app import calculate_soil_health_score
+    ok = calculate_soil_health_score({**LIXISOL, 'pH': 6.3})['breakdown']['pH']['score']
+    acid = calculate_soil_health_score({**LIXISOL, 'pH': 4.8})['breakdown']['pH']['score']
+    assert ok == 100
+    assert acid <= 60
+
+
+def test_cached_prediction_gets_new_history_entry(client, good_soil):
+    a = client.post('/api/predict', json=good_soil).get_json()
+    b = client.post('/api/predict', json=good_soil).get_json()
+    assert a['analysis_id'] != b['analysis_id']
+    assert len(client.get('/api/history').get_json()) == 2
+
+
+def test_health_grade_orders_burkina_soil_types():
+    from app import calculate_soil_health_score
+    from generate_burkina_dataset import SOIL_TYPES
+    grade = {name: calculate_soil_health_score({p: d['mean'] for p, d in st['params'].items()})['grade']
+             for name, st in SOIL_TYPES.items()}
+    assert grade['Lithosol'] == 'D'
+    assert grade['Lixisol'] == 'C'
+    assert grade['Luvisol'] == 'B'
+    assert grade['Bas-fond'] == 'A'

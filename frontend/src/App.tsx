@@ -13,7 +13,8 @@ import InputPanel from './components/InputPanel';
 import ResultsPanel from './components/ResultsPanel';
 import HelpPanel from './components/HelpPanel';
 
-const SAMPLE_SOIL = { N:'180', P:'8.5', K:'520', pH:'7.5', EC:'0.6', OC:'0.9', S:'18', Zn:'0.3', Fe:'0.6', Cu:'1.2', Mn:'5.5', B:'1.2' };
+// Typical Luvisol (sandy loam, Hauts-Bassins) profile
+const SAMPLE_SOIL = { N:'125', P:'6.5', K:'255', pH:'6.5', EC:'0.34', OC:'0.58', S:'12', Zn:'0.62', Fe:'2.1', Cu:'0.72', Mn:'4.2', B:'0.32' };
 
 function App() {
   const [lang, setLang] = useState('en');

@@ -1,14 +1,23 @@
+import os
+
+# Must be set before importing app: the SQLAlchemy engine is bound at import time
+os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
+os.environ.setdefault('RATE_LIMIT_PER_MINUTE', '1000')
+
 import pytest
-from app import app, db
+from app import app, db, prediction_cache, rate_limiter
 
 
 @pytest.fixture
 def client():
     app.config['TESTING'] = True
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+    with app.app_context():
+        db.drop_all()
+        db.create_all()
+    if prediction_cache is not None:
+        prediction_cache.clear()
+    rate_limiter.requests.clear()
     with app.test_client() as client:
-        with app.app_context():
-            db.create_all()
         yield client
 
 

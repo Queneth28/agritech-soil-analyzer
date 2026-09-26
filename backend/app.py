@@ -34,6 +34,9 @@ import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime, timezone
 from functools import wraps
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+from crop_profiles import CROPS, CROP_INFO, FEATURES, crop_suitability
 
 # Load .env file if python-dotenv is installed
 try:
@@ -148,99 +151,30 @@ prediction_cache = TTLCache(maxsize=256, ttl=AppConfig.CACHE_TTL) if TTLCache el
 def make_cache_key(data):
     return hashlib.md5(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
+def new_analysis_id(data):
+    return hashlib.md5(
+        f"{json.dumps(data, sort_keys=True)}{time.time_ns()}".encode()
+    ).hexdigest()[:12]
+
 
 # ============================================================================
-# CROP DATABASE — now includes seasonal planting data
+# CROP DATABASE — Burkina Faso / Sahel crops, built from crop_profiles.py so
+# the rule-based ranking uses exactly the thresholds that label the ML data.
 # ============================================================================
 
 CROP_DATABASE = [
-    # Cereals
-    {'name': 'Wheat', 'category': 'Cereal', 'icon': '🌾',
-     'N': (150, 250), 'P': (7, 12), 'K': (400, 600), 'pH': (6.0, 7.5), 'OC': (0.8, 2.0),
-     'description': 'Staple grain crop, drought-resistant',
-     'seasons': ['Oct', 'Nov', 'Dec'], 'harvest_months': 4},
-    {'name': 'Rice', 'category': 'Cereal', 'icon': '🌾',
-     'N': (180, 280), 'P': (8, 15), 'K': (450, 700), 'pH': (5.5, 7.0), 'OC': (1.0, 2.5),
-     'description': 'High-yielding grain, requires water management',
-     'seasons': ['Jun', 'Jul'], 'harvest_months': 4},
-    {'name': 'Maize (Corn)', 'category': 'Cereal', 'icon': '🌽',
-     'N': (200, 300), 'P': (9, 15), 'K': (500, 750), 'pH': (5.8, 7.5), 'OC': (1.0, 2.0),
-     'description': 'Versatile crop, high nutrient demand',
-     'seasons': ['Mar', 'Apr', 'May'], 'harvest_months': 3},
-    {'name': 'Barley', 'category': 'Cereal', 'icon': '🌾',
-     'N': (120, 200), 'P': (6, 10), 'K': (350, 550), 'pH': (6.5, 7.8), 'OC': (0.7, 1.5),
-     'description': 'Hardy grain, tolerates alkaline soils',
-     'seasons': ['Oct', 'Nov'], 'harvest_months': 4},
-
-    # Legumes
-    {'name': 'Soybeans', 'category': 'Legume', 'icon': '🫘',
-     'N': (80, 150), 'P': (8, 12), 'K': (450, 650), 'pH': (6.0, 7.0), 'OC': (1.0, 2.0),
-     'description': 'Nitrogen-fixing, protein-rich',
-     'seasons': ['May', 'Jun'], 'harvest_months': 4},
-    {'name': 'Chickpeas', 'category': 'Legume', 'icon': '🫘',
-     'N': (60, 120), 'P': (7, 11), 'K': (350, 500), 'pH': (6.5, 8.0), 'OC': (0.8, 1.5),
-     'description': 'Drought-tolerant, nitrogen-fixing',
-     'seasons': ['Oct', 'Nov'], 'harvest_months': 5},
-    {'name': 'Peas', 'category': 'Legume', 'icon': '🫛',
-     'N': (70, 130), 'P': (8, 12), 'K': (400, 550), 'pH': (6.0, 7.5), 'OC': (1.0, 2.0),
-     'description': 'Cool-season crop, soil improver',
-     'seasons': ['Feb', 'Mar'], 'harvest_months': 3},
-
-    # Vegetables
-    {'name': 'Tomatoes', 'category': 'Vegetable', 'icon': '🍅',
-     'N': (180, 250), 'P': (9, 14), 'K': (500, 700), 'pH': (6.0, 7.0), 'OC': (1.2, 2.5),
-     'description': 'High-value crop, requires good drainage',
-     'seasons': ['Mar', 'Apr', 'May'], 'harvest_months': 3},
-    {'name': 'Potatoes', 'category': 'Vegetable', 'icon': '🥔',
-     'N': (150, 220), 'P': (8, 13), 'K': (550, 750), 'pH': (5.0, 6.5), 'OC': (1.0, 2.5),
-     'description': 'Tuber crop, prefers slightly acidic soil',
-     'seasons': ['Feb', 'Mar', 'Apr'], 'harvest_months': 4},
-    {'name': 'Onions', 'category': 'Vegetable', 'icon': '🧅',
-     'N': (140, 200), 'P': (7, 11), 'K': (400, 600), 'pH': (6.0, 7.0), 'OC': (1.0, 2.0),
-     'description': 'Shallow-rooted, requires consistent moisture',
-     'seasons': ['Oct', 'Nov', 'Mar'], 'harvest_months': 4},
-    {'name': 'Carrots', 'category': 'Vegetable', 'icon': '🥕',
-     'N': (120, 180), 'P': (8, 12), 'K': (450, 650), 'pH': (6.0, 7.0), 'OC': (1.0, 2.0),
-     'description': 'Root vegetable, needs loose soil',
-     'seasons': ['Mar', 'Apr', 'Aug', 'Sep'], 'harvest_months': 3},
-    {'name': 'Lettuce', 'category': 'Vegetable', 'icon': '🥬',
-     'N': (130, 190), 'P': (7, 11), 'K': (400, 600), 'pH': (6.0, 7.0), 'OC': (1.2, 2.5),
-     'description': 'Leafy green, short growing season',
-     'seasons': ['Mar', 'Apr', 'Sep', 'Oct'], 'harvest_months': 2},
-
-    # Fruits
-    {'name': 'Strawberries', 'category': 'Fruit', 'icon': '🍓',
-     'N': (100, 160), 'P': (8, 12), 'K': (450, 650), 'pH': (5.5, 6.5), 'OC': (1.5, 3.0),
-     'description': 'Berry crop, prefers acidic soil',
-     'seasons': ['Apr', 'May'], 'harvest_months': 2},
-    {'name': 'Watermelon', 'category': 'Fruit', 'icon': '🍉',
-     'N': (120, 180), 'P': (8, 12), 'K': (500, 700), 'pH': (6.0, 7.0), 'OC': (1.0, 2.0),
-     'description': 'Large fruit, needs space and warmth',
-     'seasons': ['May', 'Jun'], 'harvest_months': 3},
-
-    # Cash Crops
-    {'name': 'Cotton', 'category': 'Cash Crop', 'icon': '🌱',
-     'N': (150, 220), 'P': (8, 13), 'K': (450, 650), 'pH': (6.0, 7.5), 'OC': (0.8, 1.5),
-     'description': 'Fiber crop, drought-resistant',
-     'seasons': ['Apr', 'May'], 'harvest_months': 5},
-    {'name': 'Sunflower', 'category': 'Cash Crop', 'icon': '🌻',
-     'N': (100, 170), 'P': (7, 11), 'K': (400, 600), 'pH': (6.0, 7.5), 'OC': (0.8, 1.8),
-     'description': 'Oilseed crop, adaptable',
-     'seasons': ['Apr', 'May', 'Jun'], 'harvest_months': 3},
-    {'name': 'Sugarcane', 'category': 'Cash Crop', 'icon': '🎋',
-     'N': (200, 300), 'P': (9, 15), 'K': (550, 800), 'pH': (6.0, 7.5), 'OC': (1.2, 2.5),
-     'description': 'High nutrient demand, long-season crop',
-     'seasons': ['Feb', 'Mar'], 'harvest_months': 12},
-
-    # Herbs
-    {'name': 'Mint', 'category': 'Herb', 'icon': '🌿',
-     'N': (120, 180), 'P': (7, 10), 'K': (350, 500), 'pH': (6.0, 7.0), 'OC': (1.5, 2.5),
-     'description': 'Aromatic herb, spreads easily',
-     'seasons': ['Mar', 'Apr', 'May'], 'harvest_months': 2},
-    {'name': 'Basil', 'category': 'Herb', 'icon': '🌿',
-     'N': (130, 190), 'P': (7, 11), 'K': (400, 550), 'pH': (6.0, 7.5), 'OC': (1.2, 2.0),
-     'description': 'Culinary herb, warm-season crop',
-     'seasons': ['Apr', 'May', 'Jun'], 'harvest_months': 2},
+    {
+        'name': crop['name'],
+        'category': CROP_INFO[crop['name']]['category'],
+        'icon': CROP_INFO[crop['name']]['icon'],
+        'description': CROP_INFO[crop['name']]['description'],
+        'seasons': CROP_INFO[crop['name']]['seasons'],
+        'harvest_months': CROP_INFO[crop['name']]['cycle_months'],
+        'optimal': crop['optimal'],
+        'acceptable': crop['acceptable'],
+        'weights': crop['weights'],
+    }
+    for crop in CROPS.values()
 ]
 
 
@@ -350,45 +284,31 @@ class SoilFertilityModel:
 # CROP RECOMMENDATION ENGINE (same logic, cleaner code)
 # ============================================================================
 
+PARAM_UNITS = {
+    'N': 'mg/kg', 'P': 'mg/kg', 'K': 'mg/kg', 'pH': '', 'EC': 'dS/m', 'OC': '%',
+    'S': 'mg/kg', 'Zn': 'mg/kg', 'Fe': 'mg/kg', 'Cu': 'mg/kg', 'Mn': 'mg/kg', 'B': 'mg/kg',
+}
+
+
 def calculate_crop_suitability(soil_data, crop):
-    scores, matched, challenges = [], [], []
+    """Weighted suitability (0-100) using the same scoring as the dataset generator."""
+    overall = crop_suitability(soil_data, crop) * 100
 
-    for nutrient in ['N', 'P', 'K']:
-        val = soil_data[nutrient]
-        lo, hi = crop[nutrient]
-        if lo <= val <= hi:
-            scores.append(100)
-            matched.append(f"{nutrient} optimal ({val} mg/kg)")
-        elif val < lo:
-            scores.append(max(0, 100 - ((lo - val) / lo) * 100))
-            challenges.append(f"{nutrient} below optimal ({val} vs {lo}-{hi})")
+    # Report on the parameters that matter most for this crop first
+    matched, challenges = [], []
+    for param in sorted(FEATURES, key=lambda p: crop['weights'][p], reverse=True):
+        val, unit = soil_data[param], PARAM_UNITS[param]
+        opt_lo, opt_hi = crop['optimal'][param]
+        acc_lo, acc_hi = crop['acceptable'][param]
+        if opt_lo <= val <= opt_hi:
+            matched.append(f"{param} optimal ({val}{' ' + unit if unit else ''})")
+        elif val < acc_lo or val > acc_hi:
+            direction = 'too low' if val < acc_lo else 'too high'
+            challenges.append(f"{param} {direction} ({val} vs {opt_lo}-{opt_hi})")
         else:
-            scores.append(max(0, 100 - ((val - hi) / hi) * 50))
-            challenges.append(f"{nutrient} above optimal ({val} vs {lo}-{hi})")
+            direction = 'below' if val < opt_lo else 'above'
+            challenges.append(f"{param} {direction} optimal ({val} vs {opt_lo}-{opt_hi})")
 
-    val = soil_data['pH']
-    lo, hi = crop['pH']
-    if lo <= val <= hi:
-        scores.append(100)
-        matched.append(f"pH optimal at {val}")
-    else:
-        dist = min(abs(val - lo), abs(val - hi))
-        scores.append(max(0, 100 - dist * 30))
-        challenges.append(f"pH {'too acidic' if val < lo else 'too alkaline'} ({val} vs {lo}-{hi})")
-
-    val = soil_data['OC']
-    lo, hi = crop['OC']
-    if lo <= val <= hi:
-        scores.append(100)
-        matched.append(f"Organic carbon good ({val}%)")
-    elif val < lo:
-        scores.append(max(0, 100 - ((lo - val) / lo) * 80))
-        challenges.append(f"OC low ({val}% vs {lo}-{hi}%)")
-    else:
-        scores.append(90)
-        matched.append(f"Excellent organic matter ({val}%)")
-
-    overall = np.mean(scores)
     priority = 'Excellent' if overall >= 85 else 'Good' if overall >= 70 else 'Fair'
 
     return {
@@ -412,34 +332,81 @@ def recommend_crops(soil_data, top_n=10):
 # SOIL HEALTH SCORE — NEW weighted index
 # ============================================================================
 
-def calculate_soil_health_score(soil_data):
-    weights = {
-        'N': 0.18, 'P': 0.15, 'K': 0.15, 'pH': 0.15,
-        'OC': 0.12, 'EC': 0.05, 'S': 0.05,
-        'Zn': 0.04, 'Fe': 0.03, 'Cu': 0.03, 'Mn': 0.03, 'B': 0.02
-    }
-    optimal = {
-        'N': (150, 300), 'P': (7, 10), 'K': (400, 700), 'pH': (6.5, 7.5),
-        'EC': (0.4, 0.8), 'OC': (0.8, 2.0), 'S': (10, 30),
-        'Zn': (0.2, 0.5), 'Fe': (0.3, 1.0), 'Cu': (0.5, 2.0),
-        'Mn': (2, 10), 'B': (0.5, 3.0)
-    }
+# Reference "good fertility" ranges for West African upland soils, in the same
+# units as the model features. Upper bounds for EC mark salinity risk.
+SOIL_OPTIMAL_RANGES = {
+    'N': (100, 250), 'P': (8, 25), 'K': (150, 500), 'pH': (5.8, 7.0),
+    'EC': (0.0, 0.8), 'OC': (0.8, 2.0), 'S': (8, 25),
+    'Zn': (0.5, 2.0), 'Fe': (0.8, 4.0), 'Cu': (0.3, 1.5),
+    'Mn': (2, 8), 'B': (0.2, 1.0),
+}
 
+SOIL_HEALTH_WEIGHTS = {
+    'N': 0.16, 'P': 0.18, 'K': 0.12, 'pH': 0.15,
+    'OC': 0.15, 'EC': 0.05, 'S': 0.05,
+    'Zn': 0.05, 'Fe': 0.02, 'Cu': 0.02, 'Mn': 0.02, 'B': 0.03,
+}
+
+
+def calculate_soil_health_score(soil_data):
     total, breakdown = 0, {}
-    for nutrient, weight in weights.items():
+    for nutrient, weight in SOIL_HEALTH_WEIGHTS.items():
         val = soil_data.get(nutrient, 0)
-        lo, hi = optimal[nutrient]
+        lo, hi = SOIL_OPTIMAL_RANGES[nutrient]
         if lo <= val <= hi:
             score = 100
+        elif nutrient == 'pH':
+            # Penalise distance from the range in pH units, both directions
+            score = max(0, 100 - min(abs(val - lo), abs(val - hi)) * 40)
         elif val < lo:
-            score = max(0, (val / lo) * 100)
+            # Quadratic: a nutrient at half its target is a serious limitation
+            score = max(0, (val / lo) ** 2 * 100)
         else:
             score = max(0, 100 - ((val - hi) / hi) * 50)
         total += score * weight
         breakdown[nutrient] = {'score': round(score, 1), 'weight': weight, 'value': val}
 
-    grade = 'A' if total >= 85 else 'B' if total >= 70 else 'C' if total >= 55 else 'D'
+    # Calibrated on soil-type means: Lithosol D, Lixisol C, Luvisol B, Vertisol/Bas-fond A
+    grade = 'A' if total >= 90 else 'B' if total >= 75 else 'C' if total >= 60 else 'D'
     return {'overall_score': round(total, 1), 'grade': grade, 'breakdown': breakdown}
+
+
+# ============================================================================
+# FERTILIZER & SOIL MANAGEMENT ADVICE — products available in Burkina Faso
+# ============================================================================
+
+def fertilizer_recommendations(soil_data):
+    recs = []
+    low = {p: soil_data[p] < SOIL_OPTIMAL_RANGES[p][0] for p in ('N', 'P', 'K', 'OC', 'Zn', 'B')}
+    if low['OC']:
+        recs.append("Add organic matter: compost or manure (2.5-5 t/ha), zaï pits or "
+                    "demi-lunes, and keep crop residues on the field")
+    if low['P']:
+        recs.append("Correct phosphorus: Burkina Phosphate (BP, 200-400 kg/ha as a "
+                    "basal dressing) or NPK 14-23-14 at sowing")
+    if low['N']:
+        recs.append("Apply nitrogen: urea (46-0-0) split in two top-dressings, or "
+                    "rotate with niébé/arachide to fix nitrogen")
+    if low['K']:
+        recs.append("Apply potassium: NPK 15-15-15 or KCl (0-0-60), especially for cotton and maize")
+    if soil_data['pH'] < 5.5:
+        recs.append("Raise pH: dolomite or Burkina Phosphate plus organic matter to limit aluminium toxicity")
+    elif soil_data['pH'] > 7.5:
+        recs.append("High pH: use ammonium sulfate as N source and add organic matter; watch Zn and Fe availability")
+    if soil_data['EC'] > 0.8:
+        recs.append("Salinity risk: improve drainage and avoid KCl and other chloride fertilizers")
+    if low['Zn']:
+        recs.append("Zinc deficiency: zinc sulfate (5-10 kg/ha) or Zn-enriched NPK, critical for maize and rice")
+    if low['B']:
+        recs.append("Boron deficiency: borax (5-10 kg/ha), especially for cotton and groundnut")
+    if recs:
+        recs.append("Use micro-dosing (a few grams of fertilizer per planting hole) "
+                    "to get the best return on small fertilizer budgets")
+    else:
+        recs = ["Maintain current management with organic inputs",
+                "Rotate cereals with legumes (niébé, arachide, soja)",
+                "Re-test the soil every 2-3 seasons"]
+    return recs
 
 
 # ============================================================================
@@ -456,34 +423,16 @@ def analyze_soil(soil_data, model):
                    for f, _ in sorted_feats[:4]]
 
     # Strengths & deficiencies
-    strengths, deficiencies, recs = [], [], []
-    checks = {
-        'N':  (150, 300, 'mg/kg'), 'P':  (7, 10, 'mg/kg'),
-        'K':  (400, 700, 'mg/kg'), 'pH': (6.5, 7.5, ''),
-        'OC': (0.8, 2.0, '%'),
-    }
-    for p, (lo, hi, unit) in checks.items():
-        v = soil_data[p]
+    strengths, deficiencies = [], []
+    for p in ['N', 'P', 'K', 'pH', 'OC', 'Zn', 'B']:
+        lo, hi = SOIL_OPTIMAL_RANGES[p]
+        v, unit = soil_data[p], PARAM_UNITS[p]
         if lo <= v <= hi:
-            strengths.append(f"{p} optimal ({v} {unit})")
+            strengths.append(f"{p} optimal ({v}{' ' + unit if unit else ''})")
         elif v < lo:
-            deficiencies.append(f"{p} below optimal ({v} {unit}, target: {lo}-{hi})")
+            deficiencies.append(f"{p} below optimal ({v}{' ' + unit if unit else ''}, target: {lo}-{hi})")
 
-    # Fertilizer recommendations
-    if soil_data['N'] < 150:
-        recs.append("Apply nitrogen fertilizer (urea or ammonium nitrate)")
-    if soil_data['P'] < 7:
-        recs.append("Add phosphate fertilizer (DAP or superphosphate)")
-    if soil_data['K'] < 400:
-        recs.append("Apply potassium fertilizer (MOP or potassium sulfate)")
-    if soil_data['pH'] < 6.5:
-        recs.append("Apply agricultural lime to raise pH")
-    elif soil_data['pH'] > 7.5:
-        recs.append("Add sulfur or acidifying fertilizers to lower pH")
-    if soil_data['OC'] < 0.8:
-        recs.append("Add compost, manure, or cover crops for organic matter")
-    if not recs:
-        recs = ["Maintain current management", "Monitor annually", "Consider crop rotation"]
+    recs = fertilizer_recommendations(soil_data)
 
     recommended_crop = prediction['class_name']
 
@@ -518,10 +467,8 @@ def analyze_soil(soil_data, model):
             all_crops = [ml_crop_entry] + [c for c in all_crops if c['name'] != ml_crop_entry['name']]
 
     return {
-        'analysis_id': hashlib.md5(
-            f"{json.dumps(soil_data, sort_keys=True)}{time.time()}".encode()
-        ).hexdigest()[:12],
-        'timestamp': datetime.now().isoformat(),
+        'analysis_id': new_analysis_id(soil_data),
+        'timestamp': datetime.now(timezone.utc).isoformat(),
         'suitability': recommended_crop,
         'recommendedCrop': recommended_crop,
         'isModelCropRecommendation': is_crop_model,
@@ -544,7 +491,7 @@ def analyze_soil(soil_data, model):
 # ============================================================================
 
 FIELD_RANGES = {
-    'N':  (0, 400),  'P':  (0, 15),   'K':  (0, 1000),
+    'N':  (0, 400),  'P':  (0, 60),   'K':  (0, 1000),
     'pH': (0, 14),   'EC': (0, 2),     'OC': (0, 5),
     'S':  (0, 50),   'Zn': (0, 2),     'Fe': (0, 5),
     'Cu': (0, 5),    'Mn': (0, 20),    'B':  (0, 5),
@@ -579,6 +526,9 @@ def validate_soil_input(data):
 # ============================================================================
 
 app = Flask(__name__)
+# Render (and most PaaS) sit behind one reverse proxy: trust its X-Forwarded-For
+# so rate limiting sees the real client IP instead of the proxy's.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.config['SECRET_KEY'] = AppConfig.SECRET_KEY
 app.config['SQLALCHEMY_DATABASE_URI'] = AppConfig.DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -692,19 +642,19 @@ def predict_suitability():
     try:
         soil_data = validate_soil_input(request.json)
 
-        # Check cache
-        if prediction_cache is not None:
-            key = make_cache_key(soil_data)
-            if key in prediction_cache:
-                cached = prediction_cache[key].copy()
-                cached['cached'] = True
-                return jsonify(cached), 200
-
-        result = analyze_soil(soil_data, soil_model)
-        request_counter['predictions'] += 1
-
-        if prediction_cache is not None:
-            prediction_cache[make_cache_key(soil_data)] = result
+        # Check cache — reuse the analysis but give it a fresh id/timestamp so
+        # every request is its own history entry
+        key = make_cache_key(soil_data)
+        cached = prediction_cache.get(key) if prediction_cache is not None else None
+        if cached is not None:
+            result = dict(cached, cached=True)
+        else:
+            result = analyze_soil(soil_data, soil_model)
+            request_counter['predictions'] += 1
+            if prediction_cache is not None:
+                prediction_cache[key] = dict(result)
+        result['analysis_id'] = new_analysis_id(soil_data)
+        result['timestamp'] = datetime.now(timezone.utc).isoformat()
 
         try:
             record = PredictionHistory(
@@ -842,7 +792,7 @@ def get_history():
 
 @app.route('/api/history/<int:record_id>', methods=['DELETE'])
 def delete_history(record_id):
-    row = PredictionHistory.query.get_or_404(record_id)
+    row = db.get_or_404(PredictionHistory, record_id)
     db.session.delete(row)
     db.session.commit()
     return jsonify({'deleted': record_id}), 200
