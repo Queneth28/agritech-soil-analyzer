@@ -29,7 +29,8 @@ def test_prediction_good_soil(client, good_soil):
     r = client.post('/api/predict', json=good_soil)
     data = r.get_json()
     assert r.status_code == 200
-    assert data['suitability'] in ('High', 'Medium', 'Low')
+    from crop_profiles import CROPS
+    assert data['suitability'] in {c['name'] for c in CROPS.values()}
     assert 'confidence' in data
     assert 'analysis_id' in data
     assert 'soil_health_score' in data
@@ -254,3 +255,69 @@ def test_health_grade_orders_burkina_soil_types():
     assert grade['Lixisol'] == 'C'
     assert grade['Luvisol'] == 'B'
     assert grade['Bas-fond'] == 'A'
+
+
+# ============================================================================
+# CROP SUITABILITY MODEL
+# ============================================================================
+
+def test_model_is_loaded_crop_suitability(client):
+    info = client.get('/api/model/info').get_json()
+    assert info['is_trained'] is True
+    assert info['task'] == 'crop_suitability'
+    assert len(info['crops']) == 9
+    assert 'test_mae' in info
+
+
+def test_prediction_scores_every_crop_and_ranks_them(client):
+    data = client.post('/api/predict', json=LIXISOL).get_json()
+    scores = data['cropScores']
+    assert len(scores) == 9
+    assert all(0 <= s <= 1 for s in scores.values())
+    assert list(scores.values()) == sorted(scores.values(), reverse=True)
+    assert data['recommendedCrop'] == next(iter(scores))
+    assert data['scoreSource'] == 'model'
+    cards = [c['name'] for c in data['recommendedCrops']]
+    assert cards[0] == data['recommendedCrop']
+    assert len(cards) == 9
+
+
+def test_model_agrees_with_agronomic_rules():
+    """The model learns crop_profiles scoring; it must not drift far from it."""
+    from app import soil_model
+    from crop_profiles import all_crop_scores
+    predicted = soil_model.predict(LIXISOL)['scores']
+    for crop, rule_score in all_crop_scores(LIXISOL).items():
+        assert abs(predicted[crop] - rule_score) < 0.08, crop
+
+
+def test_degraded_soil_ranks_demanding_crops_last(client):
+    lithosol = {"N": 62, "P": 2.8, "K": 128, "pH": 5.9, "EC": 0.22, "OC": 0.20,
+                "S": 5, "Zn": 0.22, "Fe": 0.9, "Cu": 0.28, "Mn": 1.7, "B": 0.11}
+    scores = client.post('/api/predict', json=lithosol).get_json()['cropScores']
+    ranking = list(scores)
+    assert ranking[0] == 'Mil'
+    assert set(ranking[-3:]) & {'Maïs', 'Coton'}
+
+
+def test_shap_explains_recommended_crop(client):
+    data = client.post('/api/predict', json=LIXISOL).get_json()
+    assert set(data['shap_explanation']) == set(LIXISOL)
+    assert any(data['recommendedCrop'] in f for f in data['keyFactors'])
+
+
+def test_falls_back_to_rules_without_model(tmp_path):
+    from app import CropSuitabilityModel
+    m = CropSuitabilityModel()
+    assert m.load(str(tmp_path)) is False
+    pred = m.predict(LIXISOL)
+    assert pred['source'] == 'rules'
+    assert len(pred['scores']) == 9
+
+
+def test_excess_non_toxic_nutrient_is_not_crop_failure():
+    from crop_profiles import param_score
+    # P far above the acceptable max: reduced advantage, not zero
+    assert param_score(40, 10, 15, 7, 15, 'P') == 0.5
+    # Boron above the acceptable max can be toxic: zero
+    assert param_score(3.0, 0.3, 1.2, 0.2, 1.5, 'B') == 0.0

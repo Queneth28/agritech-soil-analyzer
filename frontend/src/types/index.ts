@@ -39,10 +39,14 @@ export interface CropRecommendation {
 export interface PredictionResult {
   analysis_id: string;
   timestamp: string;
-  suitability: 'High' | 'Medium' | 'Low';
+  suitability: string;
   confidence: string;
   confidenceScore: number;
   probabilities: Record<string, number>;
+  cropScores?: Record<string, number>;
+  recommendedCrop?: string;
+  isModelCropRecommendation?: boolean;
+  scoreSource?: 'model' | 'rules';
   keyFactors: string[];
   deficiencies: string[];
   strengths: string[];

@@ -20,7 +20,7 @@ logs/
 *.log
 
 # Generated datasets (reproducible via generate_burkina_dataset.py)
-backend/soil_data_full.csv
+backend/soil_data*.csv
 
 # OS / editors
 .DS_Store

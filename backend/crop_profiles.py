@@ -270,13 +270,21 @@ CROP_INFO = {
 # SUITABILITY SCORING
 # ============================================================================
 
-def param_score(value, opt_min, opt_max, acc_min, acc_max):
+# Nutrients whose excess is not toxic: above the acceptable range they only
+# mean a low-demand crop wastes the soil's potential, never crop failure.
+# pH, EC and micronutrients (B, Mn, Fe, Cu, Zn) keep the hard upper limit
+# because excess salinity or micronutrient toxicity does damage crops.
+NON_TOXIC_EXCESS = {'N', 'P', 'K', 'OC', 'S'}
+
+
+def param_score(value, opt_min, opt_max, acc_min, acc_max, param=None):
     """
     Score a single parameter value for a given crop requirement.
 
     Returns:
         1.0  — value in optimal range (maximum performance)
         0.5–1.0 — value in acceptable but not optimal (linear interpolation)
+        0.5  — above acceptable range for a non-toxic nutrient (see NON_TOXIC_EXCESS)
         0.0  — value outside acceptable range (crop failure or poor growth)
     """
     if opt_min <= value <= opt_max:
@@ -289,6 +297,8 @@ def param_score(value, opt_min, opt_max, acc_min, acc_max):
         # Above optimal but acceptable: linear 1.0 → 0.5
         span = acc_max - opt_max
         return 0.5 + 0.5 * (acc_max - value) / span if span > 0 else 0.5
+    elif value > acc_max and param in NON_TOXIC_EXCESS:
+        return 0.5
     else:
         return 0.0
 
@@ -303,5 +313,10 @@ def crop_suitability(soil, crop_def):
         opt   = crop_def['optimal'][param]
         acc   = crop_def['acceptable'][param]
         w     = crop_def['weights'][param]
-        score += w * param_score(val, opt[0], opt[1], acc[0], acc[1])
-    return score
+        score += w * param_score(val, opt[0], opt[1], acc[0], acc[1], param)
+    return min(score, 1.0)
+
+
+def all_crop_scores(soil):
+    """Suitability [0, 1] of every crop, keyed by crop name, in CROPS order."""
+    return {c['name']: crop_suitability(soil, c) for c in CROPS.values()}

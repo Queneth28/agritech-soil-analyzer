@@ -9,6 +9,8 @@ import { translateCrop } from '../constants/translations';
 
 const ResultsPanel = ({ result, loading, soilData, lang, t, fertilizers, exportToPDF, translateSummary, resultsRef }) => {
   const [showAllCrops, setShowAllCrops] = useState(false);
+  // Suitability 0-1 per crop; older backends sent it as 'probabilities'
+  const cropScores = result?.cropScores || result?.probabilities;
   return (
   <div className="results-panel" ref={resultsRef} tabIndex={-1}>
     {loading ? <ResultSkeleton /> : !result ? (
@@ -54,13 +56,12 @@ const ResultsPanel = ({ result, loading, soilData, lang, t, fertilizers, exportT
             </div>
             <p className="suitability-summary">{result.summary}</p>
             <div className="confidence-badges">
-              <div className="confidence-badge"><p>{t.confidence}</p><div className="value">{result.confidence}</div></div>
-              <div className="confidence-badge"><p>{t.score}</p><div className="value">{result.confidenceScore}/100</div></div>
+              <div className="confidence-badge"><p>{t.cropSuitability}</p><div className="value">{result.confidenceScore}/100</div></div>
             </div>
-            {result.probabilities && Object.keys(result.probabilities).length > 1 && (
+            {cropScores && Object.keys(cropScores).length > 1 && (
               <div className="crop-probabilities">
                 <p className="crop-prob-title">{t.topCropProbabilities}</p>
-                {Object.entries(result.probabilities).slice(0, 4).map(([crop, prob]: [string, any]) => (
+                {Object.entries(cropScores).sort(([, a]: any, [, b]: any) => b - a).slice(0, 4).map(([crop, prob]: [string, any]) => (
                   <div key={crop} className="crop-prob-row">
                     <span className="crop-prob-name">
                       {(t.cropEmojis as any)?.[crop] || '🌱'} {crop}

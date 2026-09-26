@@ -1,10 +1,15 @@
 """
-Burkina Faso / Sahel Region — Crop Recommendation Dataset Generator
+Burkina Faso / Sahel Region — Crop Suitability Dataset Generator
 AgriTech Soil Analyzer
 
-Generates realistic soil profiles for Burkina Faso and labels each sample
-with the most suitable crop based on agronomic thresholds validated against
-ICRISAT Sahelian Center, FAO Soils Bulletin, and INERA Burkina Faso research.
+Generates realistic soil profiles for Burkina Faso and labels each profile
+with a suitability score (0-1) for EVERY crop, using the agronomic
+requirements in crop_profiles.py (FAO, ICRISAT, INERA references).
+
+Why per-crop scores instead of one "best crop" label: most soils suit
+several crops (on average ~5 of the 9 score >= 0.75). Forcing a single
+label and discarding "ambiguous" soils left a dataset that was 98% millet.
+Scores keep all the information; the app ranks crops by predicted score.
 
 Soil types modeled (proportions reflect actual land cover in Burkina Faso):
   Lixisol  (Sandy ferruginous) : 40%  — Plateau Central, northern Sahel
@@ -12,35 +17,30 @@ Soil types modeled (proportions reflect actual land cover in Burkina Faso):
   Bas-fond (Lowland/riverside) : 15%  — River valleys, irrigated bas-fonds
   Lithosol (Degraded laterite) : 15%  — Degraded plateau, laterite outcrops
   Vertisol (Black cotton soil) :  5%  — Lowland depressions, clay hollows
+plus a share of "Broad" profiles sampled uniformly over wide input ranges
+(fertilized fields, acid or saline soils) so the model does not have to
+extrapolate on values users can legitimately enter.
 
-Crops covered:
-  0  Sorgho    (Sorghum bicolor)        — primary staple, drought-tolerant
-  1  Mil       (Pennisetum glaucum)     — most drought-tolerant Sahelian crop
-  2  Niébé     (Vigna unguiculata)      — nitrogen-fixing legume, staple
-  3  Arachide  (Arachis hypogaea)       — legume, important cash+food crop
-  4  Maïs      (Zea mays)              — high-input, needs good soils
-  5  Coton     (Gossypium hirsutum)     — primary cash crop, heavy feeder
-  6  Sésame    (Sesamum indicum)        — drought-tolerant export cash crop
-  7  Soja      (Glycine max)            — legume, higher input requirements
-  8  Riz       (Oryza sativa)           — irrigated bas-fond zones only
+Crops: Sorgho, Mil, Niébé, Arachide, Maïs, Coton, Sésame, Soja, Riz
 
 Output: soil_data.csv
-  Columns: N, P, K, pH, EC, OC, S, Zn, Fe, Cu, Mn, B, Output, crop_name
+  Columns: N, P, K, pH, EC, OC, S, Zn, Fe, Cu, Mn, B,
+           score_<crop> for each crop, Output (index of best crop)
+  soil_data_full.csv additionally has soil_type and best_crop.
 
 Usage:
   python generate_burkina_dataset.py
-  python generate_burkina_dataset.py --samples 5000 --output soil_data.csv
+  python generate_burkina_dataset.py --samples 8000 --output soil_data.csv
 """
 
 import numpy as np
 import pandas as pd
 import argparse
-import os
 
 RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
 
-from crop_profiles import CROPS, FEATURES, crop_suitability  # noqa: E402
+from crop_profiles import CROPS, FEATURES, all_crop_scores  # noqa: E402
 
 
 # ============================================================================
@@ -189,152 +189,85 @@ def generate_profile(soil_type_def):
     return profile
 
 
-def assign_crop(soil, noise_std=0.015, min_confidence=0.52, min_margin=0.10):
+# Wide ranges for the "Broad" component (roughly the app's accepted inputs,
+# trimmed to values seen in real West African soil tests)
+BROAD_RANGES = {
+    'N': (20, 350), 'P': (1, 40), 'K': (50, 800), 'pH': (4.5, 8.5),
+    'EC': (0.02, 1.5), 'OC': (0.05, 2.5), 'S': (1, 40), 'Zn': (0.03, 2.5),
+    'Fe': (0.1, 5.0), 'Cu': (0.03, 2.5), 'Mn': (0.2, 12.0), 'B': (0.02, 1.5),
+}
+BROAD_SHARE = 0.15
+CROP_NAMES = [c['name'] for c in CROPS.values()]
+SCORE_COLUMNS = [f'score_{name}' for name in CROP_NAMES]
+
+
+def generate_broad_profile():
+    profile = {}
+    for param, (lo, hi) in BROAD_RANGES.items():
+        value = np.random.uniform(lo, hi)
+        profile[param] = round(float(value), 2 if param not in ('N', 'P', 'K', 'S') else 1)
+    return profile
+
+
+def label_profile(soil, noise_std=0.02):
     """
-    Score all crops for a soil profile and return the best-fit crop.
-
-    Noise is kept very low (1.5%) — just enough to prevent a perfectly
-    rule-based dataset while still producing learnable, consistent labels.
-
-    Returns None if the winning crop's score is too low (min_confidence)
-    or if the top two crops are too close (min_margin). These ambiguous
-    samples are discarded — they would add noise to training, not signal.
+    Suitability of every crop for this soil. A little Gaussian noise stands
+    in for field variability (rainfall, management) not captured by the soil test.
     """
-    scores = {}
-    for crop_id, crop_def in CROPS.items():
-        base_score = crop_suitability(soil, crop_def)
-        noise = np.random.normal(0, noise_std)
-        scores[crop_id] = np.clip(base_score + noise, 0.0, 1.0)
-
-    sorted_scores = sorted(scores.values(), reverse=True)
-    top_score   = sorted_scores[0]
-    second_score = sorted_scores[1]
-    margin = top_score - second_score
-
-    # Discard ambiguous samples — no clear winner
-    if top_score < min_confidence or margin < min_margin:
-        return None, None, scores
-
-    best_crop_id = max(scores, key=scores.get)
-    return best_crop_id, top_score, scores
+    scores = all_crop_scores(soil)
+    return {f'score_{name}': round(float(np.clip(s + np.random.normal(0, noise_std), 0, 1)), 4)
+            for name, s in scores.items()}
 
 
 # ============================================================================
 # MAIN GENERATOR
 # ============================================================================
 
-def generate_dataset(n_samples=6000, output_path='soil_data.csv'):
-    """
-    Generate a full labeled dataset for Burkina Faso crop recommendation.
-
-    Generates 4x the target samples, filters out ambiguous ones, then
-    ensures every crop class has at least min_per_class samples by
-    running additional targeted generation for underrepresented crops.
-    """
-    MIN_PER_CLASS = 400   # minimum samples per crop class
-    OVERSAMPLE    = 4     # generate this many times n_samples before filtering
-
+def generate_dataset(n_samples=8000, output_path='soil_data.csv'):
     print("=" * 60)
-    print("BURKINA FASO CROP RECOMMENDATION DATASET GENERATOR")
+    print("BURKINA FASO CROP SUITABILITY DATASET GENERATOR")
     print(f"Target: {n_samples} samples — Sahel / Burkina Faso")
     print("=" * 60)
 
-    soil_type_names = list(SOIL_TYPES.keys())
-    proportions     = [SOIL_TYPES[t]['proportion'] for t in soil_type_names]
+    n_broad = int(n_samples * BROAD_SHARE)
+    n_typed = n_samples - n_broad
+    names = list(SOIL_TYPES.keys())
+    counts = [int(SOIL_TYPES[t]['proportion'] * n_typed) for t in names]
+    counts[0] += n_typed - sum(counts)
 
-    def _generate_batch(total):
-        counts = [int(p * total) for p in proportions]
-        counts[0] += total - sum(counts)
-        rows = []
-        discarded = 0
-        for soil_type_name, count in zip(soil_type_names, counts):
-            soil_type_def = SOIL_TYPES[soil_type_name]
-            for _ in range(count):
-                profile = generate_profile(soil_type_def)
-                crop_id, top_score, _ = assign_crop(profile)
-                if crop_id is None:
-                    discarded += 1
-                    continue
-                row = dict(profile)
-                row['Output']     = crop_id
-                row['crop_name']  = CROPS[crop_id]['name']
-                row['soil_type']  = soil_type_name
-                row['confidence'] = round(top_score, 3)
-                rows.append(row)
-        return rows, discarded
+    rows = []
+    for soil_type, count in zip(names, counts):
+        for _ in range(count):
+            profile = generate_profile(SOIL_TYPES[soil_type])
+            rows.append({**profile, **label_profile(profile), 'soil_type': soil_type})
+    for _ in range(n_broad):
+        profile = generate_broad_profile()
+        rows.append({**profile, **label_profile(profile), 'soil_type': 'Broad'})
 
-    # Phase 1: generate large batch and filter
-    print(f"\nPhase 1: generating {n_samples * OVERSAMPLE} candidates...")
-    rows, discarded = _generate_batch(n_samples * OVERSAMPLE)
-    print(f"  Kept {len(rows)} clear samples, discarded {discarded} ambiguous ones")
+    df = pd.DataFrame(rows).sample(frac=1, random_state=RANDOM_STATE).reset_index(drop=True)
+    df['Output'] = df[SCORE_COLUMNS].values.argmax(axis=1)
+    df['best_crop'] = [CROP_NAMES[i] for i in df['Output']]
 
-    df = pd.DataFrame(rows)
-
-    # Phase 2: top up underrepresented classes
-    print("Phase 2: balancing underrepresented crops...")
-    for crop_id in sorted(CROPS.keys()):
-        current = (df['Output'] == crop_id).sum()
-        if current < MIN_PER_CLASS:
-            needed = MIN_PER_CLASS - current
-            print(f"  {CROPS[crop_id]['name']:<12} has {current} — generating {needed} more")
-            extra_rows = []
-            attempts = 0
-            # Generate from all soil types until we have enough
-            while len(extra_rows) < needed and attempts < needed * 50:
-                soil_type_name = np.random.choice(soil_type_names, p=proportions)
-                profile = generate_profile(SOIL_TYPES[soil_type_name])
-                c_id, top_score, _ = assign_crop(profile)
-                if c_id == crop_id:
-                    row = dict(profile)
-                    row['Output']     = crop_id
-                    row['crop_name']  = CROPS[crop_id]['name']
-                    row['soil_type']  = soil_type_name
-                    row['confidence'] = round(top_score, 3)
-                    extra_rows.append(row)
-                attempts += 1
-            if extra_rows:
-                df = pd.concat([df, pd.DataFrame(extra_rows)], ignore_index=True)
-
-    # Phase 3: trim to n_samples, keeping class balance
-    if len(df) > n_samples:
-        df = df.groupby('Output', group_keys=False).apply(
-            lambda x: x.sample(min(len(x), max(MIN_PER_CLASS, int(n_samples * len(x) / len(df)))),
-                                random_state=RANDOM_STATE)
-        )
-        # If still over, random trim
-        if len(df) > n_samples:
-            df = df.sample(n_samples, random_state=RANDOM_STATE)
-
-    df = df.sample(frac=1, random_state=RANDOM_STATE).reset_index(drop=True)
-    total = len(df)
-
-    # ── Class distribution report ─────────────────────────────────
-    print(f"\nFinal crop distribution ({total} samples):")
-    for crop_id in sorted(CROPS.keys()):
-        name  = CROPS[crop_id]['name']
-        count = (df['Output'] == crop_id).sum()
-        bar   = '█' * int(count / total * 40)
-        pct   = count / total * 100
-        print(f"  {crop_id}  {name:<12} {count:>5} ({pct:4.1f}%)  {bar}")
-
-    # ── Parameter stats ───────────────────────────────────────────
-    print("\nSoil parameter statistics:")
-    stats = df[FEATURES].describe().loc[['mean', 'std', 'min', 'max']]
-    print(stats.round(2).to_string())
+    # ── Reports ───────────────────────────────────────────────────
+    print("\nSoil types: " + ', '.join(f"{t} {int((df['soil_type'] == t).sum())}"
+                                        for t in names + ['Broad']))
+    print("\nMean suitability per crop, by soil type:")
+    print((df.groupby('soil_type')[SCORE_COLUMNS].mean() * 100).round(0)
+          .rename(columns=lambda c: c[6:]).to_string())
+    print("\nBest crop distribution (for reference only — not the training target):")
+    for i, name in enumerate(CROP_NAMES):
+        count = int((df['Output'] == i).sum())
+        print(f"  {name:<10} {count:>5} ({count / len(df) * 100:4.1f}%)  {'█' * int(count / len(df) * 40)}")
+    good = (df[SCORE_COLUMNS] >= 0.75).sum(axis=1)
+    print(f"\nCrops with score >= 0.75 per soil: mean {good.mean():.1f}")
 
     # ── Save ─────────────────────────────────────────────────────
     full_path = output_path.replace('.csv', '_full.csv')
     df.to_csv(full_path, index=False)
-    print(f"\nFull dataset (with soil_type, confidence) → {full_path}")
-
-    train_cols = FEATURES + ['Output']
-    df[train_cols].to_csv(output_path, index=False)
-    print(f"Training dataset → {output_path}")
-    print(f"\nTotal samples : {total}")
-    print(f"Classes       : {df['Output'].nunique()} crops")
-    print(f"Avg confidence: {df['confidence'].mean():.3f} (higher = cleaner labels)")
+    df[FEATURES + SCORE_COLUMNS + ['Output']].to_csv(output_path, index=False)
+    print(f"\nFull dataset → {full_path}")
+    print(f"Training dataset → {output_path} ({len(df)} samples)")
     print("=" * 60)
-
     return df
 
 
@@ -343,17 +276,10 @@ def generate_dataset(n_samples=6000, output_path='soil_data.csv'):
 # ============================================================================
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        description='Generate Burkina Faso crop recommendation dataset'
-    )
-    parser.add_argument(
-        '--samples', type=int, default=5000,
-        help='Number of soil profiles to generate (default: 5000)'
-    )
-    parser.add_argument(
-        '--output', type=str, default='soil_data.csv',
-        help='Output CSV filename (default: soil_data.csv)'
-    )
+    parser = argparse.ArgumentParser(description='Generate Burkina Faso crop suitability dataset')
+    parser.add_argument('--samples', type=int, default=8000,
+                        help='Number of soil profiles to generate (default: 8000)')
+    parser.add_argument('--output', type=str, default='soil_data.csv',
+                        help='Output CSV filename (default: soil_data.csv)')
     args = parser.parse_args()
-
-    df = generate_dataset(n_samples=args.samples, output_path=args.output)
+    generate_dataset(n_samples=args.samples, output_path=args.output)

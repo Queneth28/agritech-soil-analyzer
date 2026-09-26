@@ -23,8 +23,6 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
 import joblib
 import os
 import json
@@ -36,7 +34,8 @@ from datetime import datetime, timezone
 from functools import wraps
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from crop_profiles import CROPS, CROP_INFO, FEATURES, crop_suitability
+from crop_profiles import CROPS, CROP_INFO, FEATURES, all_crop_scores, crop_suitability
+from model_utils import CropShapExplainer, feature_importance
 
 # Load .env file if python-dotenv is installed
 try:
@@ -179,105 +178,73 @@ CROP_DATABASE = [
 
 
 # ============================================================================
-# MODEL CLASS — Enhanced with SHAP + metadata
+# MODEL CLASS — multi-output crop suitability regressor
 # ============================================================================
 
-class SoilFertilityModel:
+class CropSuitabilityModel:
+    """
+    Predicts a suitability score (0-1) for every crop. Trained by
+    train_model.py; if no model file is present the rule-based scores from
+    crop_profiles.py (the same function that labels the training data) are
+    used instead, so the API keeps working.
+    """
+
     def __init__(self):
         self.model = None
-        self.scaler = None
         self.shap_explainer = None
         self.metadata = {}
-        self.feature_names = ['N', 'P', 'K', 'pH', 'EC', 'OC', 'S', 'Zn', 'Fe', 'Cu', 'Mn', 'B']
-        self.class_names = {0: 'Low', 1: 'Medium', 2: 'High'}
+        self.feature_names = list(FEATURES)
+        self.crop_names = [c['name'] for c in CROPS.values()]
         self.is_trained = False
 
     def load(self, model_dir=None):
         model_dir = model_dir or AppConfig.MODEL_DIR
-        model_path = os.path.join(model_dir, 'rf_model.pkl')
-        scaler_path = os.path.join(model_dir, 'scaler.pkl')
-
-        if not os.path.exists(model_path) or not os.path.exists(scaler_path):
+        meta_path = os.path.join(model_dir, 'model_metadata.json')
+        if not os.path.exists(meta_path):
+            return False
+        with open(meta_path, encoding='utf-8') as f:
+            metadata = json.load(f)
+        if metadata.get('task') != 'crop_suitability':
+            return False
+        model_path = os.path.join(model_dir, metadata.get('model_file', 'crop_model.pkl'))
+        if not os.path.exists(model_path):
             return False
 
         self.model = joblib.load(model_path)
-        self.scaler = joblib.load(scaler_path)
+        self.metadata = metadata
+        self.feature_names = metadata.get('features', self.feature_names)
+        self.crop_names = metadata.get('crop_names', self.crop_names)
         self.is_trained = True
-
-        # Load SHAP explainer (optional)
-        shap_path = os.path.join(model_dir, 'shap_explainer.pkl')
-        if os.path.exists(shap_path):
-            try:
-                self.shap_explainer = joblib.load(shap_path)
-            except Exception:
-                self.shap_explainer = None
-
-        # Load metadata (optional)
-        meta_path = os.path.join(model_dir, 'model_metadata.json')
-        if os.path.exists(meta_path):
-            with open(meta_path) as f:
-                self.metadata = json.load(f)
-            # Load class names from metadata if available
-            if 'class_names' in self.metadata:
-                self.class_names = {int(k): v for k, v in self.metadata['class_names'].items()}
-
+        try:
+            self.shap_explainer = CropShapExplainer(self.model)
+        except Exception:
+            self.shap_explainer = None
         return True
 
     def predict(self, soil_data):
         if not self.is_trained:
-            raise ModelError("Model not loaded. Train first: python train_model.py")
+            scores = all_crop_scores(soil_data)
+            return {'scores': scores, 'source': 'rules',
+                    'feature_importance': {}, 'shap_explanation': {}}
 
-        df = pd.DataFrame([soil_data], columns=self.feature_names)
-        X_scaled = self.scaler.transform(df)
+        X = pd.DataFrame([soil_data], columns=self.feature_names).values
+        raw = np.clip(self.model.predict(X)[0], 0, 1)
+        scores = {name: float(s) for name, s in zip(self.crop_names, raw)}
+        best_idx = int(np.argmax(raw))
 
-        prediction = self.model.predict(X_scaled)[0]
-        probabilities = self.model.predict_proba(X_scaled)[0]
+        feat_imp = dict(zip(self.feature_names,
+                            [round(float(v), 4) for v in feature_importance(self.model)]))
 
-        # Feature importance
-        feat_imp = {}
-        if hasattr(self.model, 'feature_importances_'):
-            feat_imp = dict(zip(self.feature_names,
-                                [round(float(v), 4) for v in self.model.feature_importances_]))
-
-        # SHAP explanation
         shap_exp = {}
         if self.shap_explainer is not None:
             try:
-                sv = self.shap_explainer.shap_values(X_scaled)
-                if isinstance(sv, list):
-                    vals = sv[int(prediction)][0]
-                else:
-                    vals = sv[0]
-                shap_exp = dict(zip(self.feature_names,
-                                    [round(float(v), 4) for v in vals]))
-            except Exception:
-                pass
+                vals = self.shap_explainer.explain(X, best_idx)
+                shap_exp = dict(zip(self.feature_names, [round(float(v), 4) for v in vals]))
+            except Exception as err:
+                app.logger.warning(f"SHAP explanation failed: {err}")
 
-        return {
-            'class': int(prediction),
-            'class_name': self.class_names[prediction],
-            'probabilities': {self.class_names[i]: round(float(p), 4)
-                              for i, p in enumerate(probabilities)},
-            'confidence': round(float(max(probabilities)), 4),
-            'feature_importance': feat_imp,
-            'shap_explanation': shap_exp,
-        }
-
-    def train(self, X, y):
-        """Fallback in-memory training."""
-        self.scaler = StandardScaler()
-        X_scaled = self.scaler.fit_transform(X)
-        self.model = RandomForestClassifier(
-            n_estimators=100, class_weight='balanced', random_state=42, n_jobs=-1
-        )
-        self.model.fit(X_scaled, y)
-        self.is_trained = True
-
-    def save(self, model_dir=None):
-        model_dir = model_dir or AppConfig.MODEL_DIR
-        os.makedirs(model_dir, exist_ok=True)
-        joblib.dump(self.model, os.path.join(model_dir, 'rf_model.pkl'))
-        joblib.dump(self.scaler, os.path.join(model_dir, 'scaler.pkl'))
+        return {'scores': scores, 'source': 'model',
+                'feature_importance': feat_imp, 'shap_explanation': shap_exp}
 
 
 # ============================================================================
@@ -413,14 +380,25 @@ def fertilizer_recommendations(soil_data):
 # FULL ANALYSIS ENGINE
 # ============================================================================
 
+def priority_for(score):
+    return 'Excellent' if score >= 85 else 'Good' if score >= 70 else 'Fair'
+
+
 def analyze_soil(soil_data, model):
     prediction = model.predict(soil_data)
+    scores = dict(sorted(prediction['scores'].items(), key=lambda x: x[1], reverse=True))
+    best_crop, best_score = next(iter(scores.items()))
+    best_pct = int(round(best_score * 100))
 
-    # Top influencing factors
-    sorted_feats = sorted(prediction['feature_importance'].items(),
-                          key=lambda x: x[1], reverse=True)
-    key_factors = [f"{f} level ({soil_data[f]}) — high influence"
-                   for f, _ in sorted_feats[:4]]
+    # Key factors: SHAP for the recommended crop when available, else importance
+    shap_exp = prediction['shap_explanation']
+    if shap_exp:
+        top = sorted(shap_exp.items(), key=lambda x: abs(x[1]), reverse=True)[:4]
+        key_factors = [f"{f} ({soil_data[f]}) {'raises' if v > 0 else 'lowers'} "
+                       f"{best_crop} suitability by {abs(v) * 100:.1f} points" for f, v in top]
+    else:
+        top = sorted(prediction['feature_importance'].items(), key=lambda x: x[1], reverse=True)[:4]
+        key_factors = [f"{f} level ({soil_data[f]}) — high influence" for f, _ in top]
 
     # Strengths & deficiencies
     strengths, deficiencies = [], []
@@ -434,54 +412,39 @@ def analyze_soil(soil_data, model):
 
     recs = fertilizer_recommendations(soil_data)
 
-    recommended_crop = prediction['class_name']
+    # Crop cards: rule-based explanations, ranked and scored by the model
+    crops = []
+    for crop in CROP_DATABASE:
+        card = calculate_crop_suitability(soil_data, crop)
+        card['suitabilityScore'] = int(round(scores[crop['name']] * 100))
+        card['priority'] = priority_for(card['suitabilityScore'])
+        crops.append(card)
+    crops.sort(key=lambda c: c['suitabilityScore'], reverse=True)
 
-    # Detect model type: crop recommendation vs legacy soil quality
-    quality_classes = {'Low', 'Medium', 'High'}
-    is_crop_model = recommended_crop not in quality_classes
-
-    if is_crop_model:
-        summary = (f"Based on your soil profile, {recommended_crop} is the most suitable crop "
-                   f"with {int(prediction['confidence'] * 100)}% confidence. "
-                   f"{'; '.join(recs[:2]) if recs else 'Soil amendments may improve yield.'}")
-    else:
-        summaries = {
-            'High':   "Excellent conditions with well-balanced nutrients.",
-            'Medium': "Good potential with some areas for improvement.",
-            'Low':    "Significant amendments needed to improve fertility.",
-        }
-        summary = f"Soil analysis indicates {recommended_crop.lower()} suitability. {summaries.get(recommended_crop, '')}"
-
-    # Top crop probabilities sorted descending
-    sorted_probs = dict(sorted(prediction['probabilities'].items(),
-                               key=lambda x: x[1], reverse=True))
-
-    all_crops = recommend_crops(soil_data)
-
-    # If crop model: put the ML-recommended crop first in the list
-    if is_crop_model:
-        ml_crop_entry = next(
-            (c for c in all_crops if c['name'].lower() == recommended_crop.lower()), None
-        )
-        if ml_crop_entry:
-            all_crops = [ml_crop_entry] + [c for c in all_crops if c['name'] != ml_crop_entry['name']]
+    alternatives = [f"{name} ({int(round(s * 100))}/100)" for name, s in list(scores.items())[1:3]]
+    summary = (f"{best_crop} is the best match for this soil (suitability {best_pct}/100). "
+               f"Also suitable: {', '.join(alternatives)}. "
+               f"Priority action: {recs[0]}")
 
     return {
         'analysis_id': new_analysis_id(soil_data),
         'timestamp': datetime.now(timezone.utc).isoformat(),
-        'suitability': recommended_crop,
-        'recommendedCrop': recommended_crop,
-        'isModelCropRecommendation': is_crop_model,
-        'confidence': f"{int(prediction['confidence'] * 100)}%",
-        'confidenceScore': int(prediction['confidence'] * 100),
-        'probabilities': sorted_probs,
+        'suitability': best_crop,
+        'recommendedCrop': best_crop,
+        'isModelCropRecommendation': True,
+        'scoreSource': prediction['source'],
+        'confidence': f"{best_pct}%",
+        'confidenceScore': best_pct,
+        'cropScores': {k: round(v, 4) for k, v in scores.items()},
+        # Kept for older frontends that read 'probabilities'
+        'probabilities': {k: round(v, 4) for k, v in scores.items()},
         'keyFactors': key_factors,
         'deficiencies': deficiencies,
         'strengths': strengths,
         'recommendations': recs,
         'summary': summary,
-        'recommendedCrops': all_crops,
-        'shap_explanation': prediction.get('shap_explanation', {}),
+        'recommendedCrops': crops,
+        'shap_explanation': shap_exp,
         'soil_health_score': calculate_soil_health_score(soil_data),
     }
 
@@ -529,6 +492,8 @@ app = Flask(__name__)
 # Render (and most PaaS) sit behind one reverse proxy: trust its X-Forwarded-For
 # so rate limiting sees the real client IP instead of the proxy's.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+# Keep dict order in responses: crop scores are sent ranked best-first
+app.json.sort_keys = False
 app.config['SECRET_KEY'] = AppConfig.SECRET_KEY
 app.config['SQLALCHEMY_DATABASE_URI'] = AppConfig.DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -557,14 +522,14 @@ request_counter = {'total': 0, 'predictions': 0}
 start_time = time.time()
 
 # Load model
-soil_model = SoilFertilityModel()
+soil_model = CropSuitabilityModel()
 if soil_model.load():
     app.logger.info("✓ Model loaded successfully")
     if soil_model.metadata:
         app.logger.info(f"  Type: {soil_model.metadata.get('model_type', 'N/A')}")
-        app.logger.info(f"  Accuracy: {soil_model.metadata.get('test_accuracy', 'N/A')}")
+        app.logger.info(f"  Test MAE: {soil_model.metadata.get('test_mae', 'N/A')} points")
 else:
-    app.logger.warning("✗ No model found. Run: python train_model.py")
+    app.logger.warning("✗ No model found — using rule-based crop scores. Run: python train_model.py")
 
 
 # ============================================================================
@@ -628,7 +593,7 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'model_loaded': soil_model.is_trained,
-        'model_type': soil_model.metadata.get('model_type', 'Random Forest'),
+        'model_type': soil_model.metadata.get('model_type', 'Rule-based'),
         'uptime_seconds': int(time.time() - start_time),
         'total_requests': request_counter['total'],
         'total_predictions': request_counter['predictions'],
@@ -693,13 +658,15 @@ def get_crops():
 @app.route('/api/model/info', methods=['GET'])
 def model_info():
     info = {
-        'model_type': soil_model.metadata.get('model_type', 'Random Forest Classifier'),
+        'model_type': soil_model.metadata.get('model_type', 'Rule-based'),
+        'task': 'crop_suitability',
         'features': soil_model.feature_names,
-        'classes': soil_model.class_names,
+        'crops': soil_model.crop_names,
         'is_trained': soil_model.is_trained,
         'has_shap': soil_model.shap_explainer is not None,
     }
-    for key in ['test_accuracy', 'f1_weighted', 'cv_mean', 'cv_std', 'trained_at', 'best_params']:
+    for key in ['test_mae', 'test_r2', 'top1_agreement', 'top3_hit_rate', 'spearman', 'mean_regret',
+                'cv_mae_mean', 'cv_mae_std', 'n_samples', 'trained_at', 'best_params']:
         if key in soil_model.metadata:
             info[key] = soil_model.metadata[key]
     return jsonify(info), 200
@@ -810,7 +777,7 @@ if __name__ == '__main__':
     print(f"  Model:       {'✓ Loaded' if soil_model.is_trained else '✗ NOT LOADED'}")
     if soil_model.metadata:
         print(f"  Model Type:  {soil_model.metadata.get('model_type', '?')}")
-        print(f"  Accuracy:    {soil_model.metadata.get('test_accuracy', '?')}")
+        print(f"  Test MAE:    {soil_model.metadata.get('test_mae', '?')} points")
     print(f"  SHAP:        {'✓' if soil_model.shap_explainer else '✗'}")
     print(f"  Rate Limit:  {AppConfig.RATE_LIMIT}/min")
     print(f"  Crops:       {len(CROP_DATABASE)}")

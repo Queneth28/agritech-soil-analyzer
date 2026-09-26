@@ -1,0 +1,60 @@
+{
+  "task": "crop_suitability",
+  "trained_at": "2026-09-26T12:21:44",
+  "model_type": "LightGBM",
+  "model_file": "crop_model.pkl",
+  "features": [
+    "N",
+    "P",
+    "K",
+    "pH",
+    "EC",
+    "OC",
+    "S",
+    "Zn",
+    "Fe",
+    "Cu",
+    "Mn",
+    "B"
+  ],
+  "crop_names": [
+    "Sorgho",
+    "Mil",
+    "Niébé",
+    "Arachide",
+    "Maïs",
+    "Coton",
+    "Sésame",
+    "Soja",
+    "Riz"
+  ],
+  "n_samples": 8000,
+  "test_mae": 1.811,
+  "test_r2": 0.9821,
+  "top1_agreement": 0.7131,
+  "top3_hit_rate": 0.9419,
+  "spearman": 0.9125,
+  "mean_regret": 0.442,
+  "cv_mae_mean": 1.842,
+  "cv_mae_std": 0.012,
+  "mae_per_crop": {
+    "Sorgho": 1.767,
+    "Mil": 1.531,
+    "Niébé": 1.831,
+    "Arachide": 1.859,
+    "Maïs": 1.929,
+    "Coton": 1.937,
+    "Sésame": 1.78,
+    "Soja": 1.831,
+    "Riz": 1.834
+  },
+  "best_params": {
+    "estimator__colsample_bytree": 0.7596527212266415,
+    "estimator__learning_rate": 0.076907356219892,
+    "estimator__min_child_samples": 12,
+    "estimator__n_estimators": 488,
+    "estimator__num_leaves": 19,
+    "estimator__reg_lambda": 0.926300878513349,
+    "estimator__subsample": 0.8953231076505833
+  }
+}
