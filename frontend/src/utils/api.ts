@@ -11,12 +11,28 @@ export const API_ENDPOINTS = {
   history: `${API_BASE}/api/history`,
 };
 
-export async function analyzeSoil(soilData) {
-  const response = await fetch(API_ENDPOINTS.predict, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(soilData),
-  });
+export interface AnalysisRequest {
+  soil: Record<string, number>;
+  lang?: string;
+  estimated?: string[];
+  parcel?: string;
+}
+
+/** Raised when the request never reached the server (no network). */
+export class NetworkError extends Error {}
+
+export async function analyzeSoil({ soil, lang = 'en', estimated = [], parcel }: AnalysisRequest, { preview = false } = {}) {
+  const url = `${API_ENDPOINTS.predict}?lang=${lang}${preview ? '&preview=1' : ''}`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...soil, estimated, parcel }),
+    });
+  } catch (err) {
+    throw new NetworkError((err as Error).message);
+  }
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.error || `API Error: ${response.status}`);

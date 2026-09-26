@@ -15,7 +15,7 @@ const defaultProps = {
 
 test('renders app title', () => {
   render(<Header {...defaultProps} />);
-  expect(screen.getByText(t.appTitle)).toBeInTheDocument();
+  expect(screen.getByText(t.brand)).toBeInTheDocument();
 });
 
 test('shows FR button when lang is en', () => {
@@ -43,4 +43,15 @@ test('shows sun icon aria-label in dark mode', () => {
 test('shows moon icon aria-label in light mode', () => {
   render(<Header {...defaultProps} theme="light" />);
   expect(screen.getByLabelText(t.themeDark)).toBeInTheDocument();
+});
+
+test('shows offline status with pending analyses', () => {
+  render(<Header {...defaultProps} online={false} pendingCount={2} />);
+  expect(screen.getByRole('status')).toHaveTextContent(t.offline);
+  expect(screen.getByRole('status')).toHaveTextContent('2');
+});
+
+test('hides status when online with nothing pending', () => {
+  render(<Header {...defaultProps} />);
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
 });

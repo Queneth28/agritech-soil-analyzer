@@ -1,50 +1,62 @@
 import React, { memo, useCallback } from 'react';
 import { AlertCircle } from 'lucide-react';
+import { parseNumber } from '../utils/numbers';
 
 interface Props {
-  param: { id: string; unit: string; range: { min: number; max: number }; optimal: { min: number; max: number }; placeholder: string; isPrimary?: boolean };
+  param: { id: string; unit: string; range: { min: number; max: number }; optimal: { min: number; max: number }; placeholder: string };
   value: string;
   onChange: (id: string, value: string) => void;
   error: string | null;
-  isOptimal: boolean;
+  estimated?: boolean;
   t: any;
 }
 
-const statusOf = (value: string, optimal: { min: number; max: number }) => {
-  if (value === '' || value == null) return null;
-  const num = parseFloat(value);
-  if (isNaN(num)) return null;
-  if (num < optimal.min) return 'low';
-  if (num > optimal.max) return 'high';
-  return 'optimal';
-};
+// Display scale for the gauge: a little beyond the target so both "too low"
+// and "too high" have room.
+const scaleMax = (p: Props['param']) => Math.min(p.range.max, p.optimal.max * 1.6);
 
-const ParameterInput = memo(({ param, value, onChange, error, isOptimal, t }: Props) => {
+const ParameterInput = memo(({ param, value, onChange, error, estimated = false, t }: Props) => {
   const handleChange = useCallback((e) => onChange(param.id, e.target.value), [param.id, onChange]);
-  const status = error ? null : statusOf(value, param.optimal);
-  const statusLabel = status && t[`status${status[0].toUpperCase()}${status.slice(1)}`];
+  const num = parseNumber(value);
+  const status = error || num === null ? null
+    : num < param.optimal.min ? 'low' : num > param.optimal.max ? 'high' : 'good';
+  const max = scaleMax(param);
+  const pct = (v: number) => Math.max(0, Math.min(100, (v / max) * 100));
+  const fmt = (v: number) => String(v).replace('.', t.decimalSep || '.');
+  const describedBy = error ? `${param.id}-error` : `${param.id}-meta`;
 
   return (
-    <div className="input-group">
-      <label htmlFor={param.id} className="input-label" title={t.parameters[param.id].description}>
+    <div className="big-field">
+      <label htmlFor={param.id} className="big-label">
         {t.parameters[param.id].label}
-        {param.isPrimary && <span className="primary-badge">{t.primaryBadge}</span>}
+        {estimated && <span className="estimated-tag">{t.estimatedBadge}</span>}
       </label>
-      <div className="input-wrap">
-        <input id={param.id} type="number" inputMode="decimal" step="0.01" min={param.range.min} max={param.range.max}
+      <div className="big-input-wrap">
+        <input id={param.id} type="text" inputMode="decimal" autoComplete="off"
           value={value} onChange={handleChange} placeholder={param.placeholder.replace(/^ex:\s*/, '')}
-          className={`input-field ${isOptimal ? 'optimal' : ''} ${error ? 'error' : ''}`}
-          aria-invalid={!!error} aria-describedby={error ? `${param.id}-error` : `${param.id}-desc`} />
-        {param.unit && <span className="input-unit" aria-hidden="true">{param.unit}</span>}
+          className={`big-input ${status ? `is-${status}` : ''} ${error ? 'is-error' : ''} ${estimated ? 'is-estimated' : ''}`}
+          aria-invalid={!!error} aria-describedby={describedBy} />
+        {param.unit && <span className="big-unit" aria-hidden="true">{param.unit}</span>}
       </div>
       {error ? (
-        <div id={`${param.id}-error`} className="error-message" role="alert"><AlertCircle size={14} /><span>{error}</span></div>
+        <div id={`${param.id}-error`} className="error-message" role="alert"><AlertCircle size={16} /><span>{error}</span></div>
       ) : (
-        <div id={`${param.id}-desc`} className="input-meta">
-          <span className="input-target">{t.targetLabel} {param.optimal.min}–{param.optimal.max}</span>
-          {status && <span className={`status-chip ${status}`}>{statusLabel}</span>}
-          <span className="sr-only">{t.parameters[param.id].description}</span>
-        </div>
+        <>
+          <div className="gauge" aria-hidden="true">
+            <div className="gauge-zone" style={{ left: `${pct(param.optimal.min)}%`, width: `${pct(param.optimal.max) - pct(param.optimal.min)}%` }} />
+            {num !== null && <div className={`gauge-mark ${status === 'good' ? '' : 'off'}`} style={{ left: `calc(${pct(num)}% - 12px)` }} />}
+          </div>
+          <div id={`${param.id}-meta`} className="field-meta">
+            <span className="field-target">
+              {t.targetShort} {fmt(param.optimal.min)}–{fmt(param.optimal.max)}{param.unit ? ` ${param.unit}` : ''}
+            </span>
+            {status && (
+              <span className={`field-state ${status === 'good' ? 'good' : 'off'}`}>
+                {status === 'good' ? `✓ ${t.goodLevel}` : status === 'low' ? `▼ ${t.tooLow}` : `▲ ${t.tooHigh}`}
+              </span>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

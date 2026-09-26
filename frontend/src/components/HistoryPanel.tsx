@@ -22,7 +22,8 @@ const HistoryPanel = ({ analysisHistory, loadFromHistory, deleteFromHistory, t }
                   <span>{format(new Date(a.date || a.timestamp), 'MMM dd, yyyy — HH:mm')}</span>
                 </div>
                 <div className="history-result">
-                  <strong>{a.result?.suitability || a.suitability}</strong>
+                  {a.result?.parcel && <span>{a.result.parcel} · </span>}
+                  <strong>{t.cropNames?.[a.result?.suitability || a.suitability] || a.result?.suitability || a.suitability}</strong>
                   {(a.result?.soil_health_score || a.health_score) && (
                     <span> · {t.soilHealth}: {Math.round(a.result?.soil_health_score?.overall_score || a.health_score)}/100</span>
                   )}

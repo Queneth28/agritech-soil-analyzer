@@ -321,3 +321,42 @@ def test_excess_non_toxic_nutrient_is_not_crop_failure():
     assert param_score(40, 10, 15, 7, 15, 'P') == 0.5
     # Boron above the acceptable max can be toxic: zero
     assert param_score(3.0, 0.3, 1.2, 0.2, 1.5, 'B') == 0.0
+
+
+# ============================================================================
+# FIELD WORKFLOW — language, preview, estimated values
+# ============================================================================
+
+def test_french_advice_and_summary(client):
+    data = client.post('/api/predict?lang=fr', json=LIXISOL).get_json()
+    assert data['lang'] == 'fr'
+    assert data['actions'][0]['code'] == 'organic_matter'
+    assert data['actions'][0]['title'] == 'Fumure organique'
+    assert 'la mieux adaptée' in data['summary']
+    assert 'P' in data['deficiencyIds'] and 'OC' in data['deficiencyIds']
+
+
+def test_language_does_not_share_cache(client):
+    en = client.post('/api/predict', json=LIXISOL).get_json()
+    fr = client.post('/api/predict', json={**LIXISOL, 'lang': 'fr'}).get_json()
+    assert en['actions'][0]['title'] == 'Organic matter'
+    assert fr['actions'][0]['title'] == 'Fumure organique'
+
+
+def test_preview_is_not_saved_to_history(client):
+    r = client.post('/api/predict?preview=1', json=LIXISOL)
+    assert r.status_code == 200
+    assert client.get('/api/history').get_json() == []
+
+
+def test_estimated_fields_and_parcel_are_echoed(client):
+    body = {**LIXISOL, 'estimated': ['Zn', 'B', 'nope'], 'parcel': '  Koudougou Nord  '}
+    data = client.post('/api/predict', json=body).get_json()
+    assert data['estimatedFields'] == ['Zn', 'B']
+    assert data['parcel'] == 'Koudougou Nord'
+
+
+def test_crop_cards_follow_exact_score_order(client):
+    data = client.post('/api/predict', json=LIXISOL).get_json()
+    assert [c['name'] for c in data['recommendedCrops']] == list(data['cropScores'])
+    assert data['recommendedCrops'][0]['name'] == data['recommendedCrop']

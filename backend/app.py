@@ -342,38 +342,96 @@ def calculate_soil_health_score(soil_data):
 # FERTILIZER & SOIL MANAGEMENT ADVICE — products available in Burkina Faso
 # ============================================================================
 
-def fertilizer_recommendations(soil_data):
-    recs = []
+ADVICE = {
+    'organic_matter': {
+        'en': ('Organic matter', 'Compost or manure (2.5-5 t/ha), zaï pits or demi-lunes, and keep crop residues on the field'),
+        'fr': ('Fumure organique', 'Compost ou fumier (2,5-5 t/ha), zaï ou demi-lunes, et résidus de récolte laissés au champ'),
+    },
+    'phosphorus': {
+        'en': ('Phosphorus', 'Burkina Phosphate (BP, 200-400 kg/ha as a basal dressing) or NPK 14-23-14 at sowing'),
+        'fr': ('Phosphore', 'Burkina Phosphate (BP, 200-400 kg/ha en fumure de fond) ou NPK 14-23-14 au semis'),
+    },
+    'nitrogen': {
+        'en': ('Nitrogen', 'Urea (46-0-0) split in two top-dressings, or rotate with niébé/arachide to fix nitrogen'),
+        'fr': ('Azote', "Urée (46-0-0) en deux apports fractionnés, ou rotation avec niébé/arachide pour fixer l'azote"),
+    },
+    'potassium': {
+        'en': ('Potassium', 'NPK 15-15-15 or KCl (0-0-60), especially for cotton and maize'),
+        'fr': ('Potassium', 'NPK 15-15-15 ou KCl (0-0-60), surtout pour le coton et le maïs'),
+    },
+    'acid_ph': {
+        'en': ('Raise pH', 'Dolomite or Burkina Phosphate plus organic matter to limit aluminium toxicity'),
+        'fr': ('Remonter le pH', 'Dolomie ou Burkina Phosphate avec de la matière organique pour limiter la toxicité aluminique'),
+    },
+    'alkaline_ph': {
+        'en': ('High pH', 'Use ammonium sulfate as N source and add organic matter; watch Zn and Fe availability'),
+        'fr': ('pH élevé', "Sulfate d'ammonium comme source d'azote et apport de matière organique ; surveiller le zinc et le fer"),
+    },
+    'salinity': {
+        'en': ('Salinity risk', 'Improve drainage and avoid KCl and other chloride fertilizers'),
+        'fr': ('Risque de salinité', 'Améliorer le drainage et éviter le KCl et les autres engrais chlorurés'),
+    },
+    'zinc': {
+        'en': ('Zinc', 'Zinc sulfate (5-10 kg/ha) or Zn-enriched NPK, critical for maize and rice'),
+        'fr': ('Zinc', 'Sulfate de zinc (5-10 kg/ha) ou NPK enrichi en zinc, essentiel pour le maïs et le riz'),
+    },
+    'boron': {
+        'en': ('Boron', 'Borax (5-10 kg/ha), especially for cotton and groundnut'),
+        'fr': ('Bore', "Borax (5-10 kg/ha), surtout pour le coton et l'arachide"),
+    },
+    'microdose': {
+        'en': ('Micro-dosing', 'A few grams of fertilizer per planting hole for the best return on a small budget'),
+        'fr': ('Microdose', "Quelques grammes d'engrais par poquet pour rentabiliser un petit budget"),
+    },
+    'maintain': {
+        'en': ('Keep it up', 'Maintain current management with organic inputs'),
+        'fr': ('Continuer', 'Maintenir la gestion actuelle avec des apports organiques'),
+    },
+    'rotate': {
+        'en': ('Rotation', 'Rotate cereals with legumes (niébé, arachide, soja)'),
+        'fr': ('Rotation', 'Alterner céréales et légumineuses (niébé, arachide, soja)'),
+    },
+    'retest': {
+        'en': ('Re-test', 'Test the soil again every 2-3 seasons'),
+        'fr': ('Nouvelle analyse', 'Refaire une analyse de sol tous les 2-3 ans'),
+    },
+}
+
+SUPPORTED_LANGS = ('en', 'fr')
+
+
+def advice_codes(soil_data):
+    """Soil management advice for this soil, most important first."""
     low = {p: soil_data[p] < SOIL_OPTIMAL_RANGES[p][0] for p in ('N', 'P', 'K', 'OC', 'Zn', 'B')}
+    codes = []
     if low['OC']:
-        recs.append("Add organic matter: compost or manure (2.5-5 t/ha), zaï pits or "
-                    "demi-lunes, and keep crop residues on the field")
+        codes.append('organic_matter')
     if low['P']:
-        recs.append("Correct phosphorus: Burkina Phosphate (BP, 200-400 kg/ha as a "
-                    "basal dressing) or NPK 14-23-14 at sowing")
+        codes.append('phosphorus')
     if low['N']:
-        recs.append("Apply nitrogen: urea (46-0-0) split in two top-dressings, or "
-                    "rotate with niébé/arachide to fix nitrogen")
+        codes.append('nitrogen')
     if low['K']:
-        recs.append("Apply potassium: NPK 15-15-15 or KCl (0-0-60), especially for cotton and maize")
+        codes.append('potassium')
     if soil_data['pH'] < 5.5:
-        recs.append("Raise pH: dolomite or Burkina Phosphate plus organic matter to limit aluminium toxicity")
+        codes.append('acid_ph')
     elif soil_data['pH'] > 7.5:
-        recs.append("High pH: use ammonium sulfate as N source and add organic matter; watch Zn and Fe availability")
+        codes.append('alkaline_ph')
     if soil_data['EC'] > 0.8:
-        recs.append("Salinity risk: improve drainage and avoid KCl and other chloride fertilizers")
+        codes.append('salinity')
     if low['Zn']:
-        recs.append("Zinc deficiency: zinc sulfate (5-10 kg/ha) or Zn-enriched NPK, critical for maize and rice")
+        codes.append('zinc')
     if low['B']:
-        recs.append("Boron deficiency: borax (5-10 kg/ha), especially for cotton and groundnut")
-    if recs:
-        recs.append("Use micro-dosing (a few grams of fertilizer per planting hole) "
-                    "to get the best return on small fertilizer budgets")
-    else:
-        recs = ["Maintain current management with organic inputs",
-                "Rotate cereals with legumes (niébé, arachide, soja)",
-                "Re-test the soil every 2-3 seasons"]
-    return recs
+        codes.append('boron')
+    return codes + ['microdose'] if codes else ['maintain', 'rotate', 'retest']
+
+
+def advice_actions(soil_data, lang='en'):
+    return [{'code': c, 'title': ADVICE[c][lang][0], 'detail': ADVICE[c][lang][1]}
+            for c in advice_codes(soil_data)]
+
+
+def fertilizer_recommendations(soil_data, lang='en'):
+    return [f"{a['title']}: {a['detail']}" for a in advice_actions(soil_data, lang)]
 
 
 # ============================================================================
@@ -384,7 +442,8 @@ def priority_for(score):
     return 'Excellent' if score >= 85 else 'Good' if score >= 70 else 'Fair'
 
 
-def analyze_soil(soil_data, model):
+def analyze_soil(soil_data, model, lang='en'):
+    fr = lang == 'fr'
     prediction = model.predict(soil_data)
     scores = dict(sorted(prediction['scores'].items(), key=lambda x: x[1], reverse=True))
     best_crop, best_score = next(iter(scores.items()))
@@ -394,23 +453,32 @@ def analyze_soil(soil_data, model):
     shap_exp = prediction['shap_explanation']
     if shap_exp:
         top = sorted(shap_exp.items(), key=lambda x: abs(x[1]), reverse=True)[:4]
-        key_factors = [f"{f} ({soil_data[f]}) {'raises' if v > 0 else 'lowers'} "
-                       f"{best_crop} suitability by {abs(v) * 100:.1f} points" for f, v in top]
+        if fr:
+            key_factors = [f"{f} ({soil_data[f]}) {'augmente' if v > 0 else 'réduit'} l'aptitude "
+                           f"de {best_crop} de {abs(v) * 100:.1f} points" for f, v in top]
+        else:
+            key_factors = [f"{f} ({soil_data[f]}) {'raises' if v > 0 else 'lowers'} "
+                           f"{best_crop} suitability by {abs(v) * 100:.1f} points" for f, v in top]
     else:
         top = sorted(prediction['feature_importance'].items(), key=lambda x: x[1], reverse=True)[:4]
         key_factors = [f"{f} level ({soil_data[f]}) — high influence" for f, _ in top]
 
     # Strengths & deficiencies
-    strengths, deficiencies = [], []
+    strengths, deficiencies, strength_ids, deficiency_ids = [], [], [], []
     for p in ['N', 'P', 'K', 'pH', 'OC', 'Zn', 'B']:
         lo, hi = SOIL_OPTIMAL_RANGES[p]
         v, unit = soil_data[p], PARAM_UNITS[p]
+        u = f" {unit}" if unit else ''
         if lo <= v <= hi:
-            strengths.append(f"{p} optimal ({v}{' ' + unit if unit else ''})")
+            strength_ids.append(p)
+            strengths.append(f"{p} optimal ({v}{u})")
         elif v < lo:
-            deficiencies.append(f"{p} below optimal ({v}{' ' + unit if unit else ''}, target: {lo}-{hi})")
+            deficiency_ids.append(p)
+            deficiencies.append(f"{p} {'sous l’optimum' if fr else 'below optimal'} ({v}{u}, "
+                                f"{'cible' if fr else 'target'}: {lo}-{hi})")
 
-    recs = fertilizer_recommendations(soil_data)
+    actions = advice_actions(soil_data, lang)
+    recs = [f"{a['title']}: {a['detail']}" for a in actions]
 
     # Crop cards: rule-based explanations, ranked and scored by the model
     crops = []
@@ -419,12 +487,18 @@ def analyze_soil(soil_data, model):
         card['suitabilityScore'] = int(round(scores[crop['name']] * 100))
         card['priority'] = priority_for(card['suitabilityScore'])
         crops.append(card)
-    crops.sort(key=lambda c: c['suitabilityScore'], reverse=True)
+    # Same order as cropScores (exact scores), so ties never disagree
+    crops.sort(key=lambda c: scores[c['name']], reverse=True)
 
     alternatives = [f"{name} ({int(round(s * 100))}/100)" for name, s in list(scores.items())[1:3]]
-    summary = (f"{best_crop} is the best match for this soil (suitability {best_pct}/100). "
-               f"Also suitable: {', '.join(alternatives)}. "
-               f"Priority action: {recs[0]}")
+    if fr:
+        summary = (f"{best_crop} est la culture la mieux adaptée à ce sol (aptitude {best_pct}/100). "
+                   f"Également adaptées : {', '.join(alternatives)}. "
+                   f"Action prioritaire : {recs[0]}")
+    else:
+        summary = (f"{best_crop} is the best match for this soil (suitability {best_pct}/100). "
+                   f"Also suitable: {', '.join(alternatives)}. "
+                   f"Priority action: {recs[0]}")
 
     return {
         'analysis_id': new_analysis_id(soil_data),
@@ -442,6 +516,10 @@ def analyze_soil(soil_data, model):
         'deficiencies': deficiencies,
         'strengths': strengths,
         'recommendations': recs,
+        'actions': actions,
+        'deficiencyIds': deficiency_ids,
+        'strengthIds': strength_ids,
+        'lang': lang,
         'summary': summary,
         'recommendedCrops': crops,
         'shap_explanation': shap_exp,
@@ -605,21 +683,35 @@ def health_check():
 @app.route('/api/predict', methods=['POST'])
 def predict_suitability():
     try:
-        soil_data = validate_soil_input(request.json)
+        body = request.get_json(silent=True) or {}
+        soil_data = validate_soil_input(body)
+        lang = request.args.get('lang') or body.get('lang') or 'en'
+        lang = lang if lang in SUPPORTED_LANGS else 'en'
+        # Preview: live ranking while the form is being filled — never saved
+        preview = request.args.get('preview') in ('1', 'true')
 
         # Check cache — reuse the analysis but give it a fresh id/timestamp so
         # every request is its own history entry
-        key = make_cache_key(soil_data)
+        key = make_cache_key({**soil_data, '_lang': lang})
         cached = prediction_cache.get(key) if prediction_cache is not None else None
         if cached is not None:
             result = dict(cached, cached=True)
         else:
-            result = analyze_soil(soil_data, soil_model)
-            request_counter['predictions'] += 1
+            result = analyze_soil(soil_data, soil_model, lang)
+            if not preview:
+                request_counter['predictions'] += 1
             if prediction_cache is not None:
                 prediction_cache[key] = dict(result)
         result['analysis_id'] = new_analysis_id(soil_data)
         result['timestamp'] = datetime.now(timezone.utc).isoformat()
+        # Fields the user did not measure and filled with typical values
+        estimated = body.get('estimated') or []
+        result['estimatedFields'] = [f for f in estimated if f in FIELD_RANGES] if isinstance(estimated, list) else []
+        parcel = body.get('parcel')
+        result['parcel'] = parcel.strip()[:80] if isinstance(parcel, str) and parcel.strip() else None
+
+        if preview:
+            return jsonify(result), 200
 
         try:
             record = PredictionHistory(
