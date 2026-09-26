@@ -126,10 +126,10 @@ function App() {
 
   const applyTypicalValues = useCallback((ids: string[]) => {
     const typical = TYPICAL_VALUES[soilType];
-    setSoilData(prev => ids.reduce((acc, id) => ({ ...acc, [id]: String(typical[id]) }), prev));
+    setSoilData(prev => ids.reduce((acc, id) => ({ ...acc, [id]: String(typical[id]).replace('.', t.decimalSep || '.') }), prev));
     setErrors(prev => ids.reduce((acc, id) => ({ ...acc, [id]: null }), prev));
     setEstimated(prev => Array.from(new Set([...prev, ...ids])));
-  }, [soilType]);
+  }, [soilType, t]);
 
   const numericSoil = useMemo(() =>
     Object.fromEntries(Object.entries(soilData).map(([k, v]) => [k, parseNumber(v)])) as Record<string, number | null>,

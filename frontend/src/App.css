@@ -514,6 +514,9 @@ button, input, select { font-family: inherit; }
     background: var(--bg); border-top: 1px solid var(--border);
   }
   .step-footer .btn-signal { flex-grow: 1; }
+  .step-footer .btn { min-width: 0; }
+  .step-footer .btn-outline { width: 60px; padding: 0; flex-shrink: 0; }
+  .step-footer .btn-outline .btn-label { display: none; }
 
   .result-page { padding: 16px 16px 100px; gap: 16px; }
   .result-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
