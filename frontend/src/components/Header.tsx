@@ -1,40 +1,33 @@
 import React from 'react';
-import { Globe, History, Sun, Moon, HelpCircle } from 'lucide-react';
+import { History, Sun, Moon, HelpCircle, Sprout, Languages } from 'lucide-react';
 
-const Header = ({ lang, setLang, theme, setTheme, showHistory, setShowHistory, historyCount, onShowHelp, t }) => (
+const Header = ({ lang, setLang, theme, setTheme, showHistory, setShowHistory, historyCount = 0, onShowHelp = () => {}, t }) => (
   <header className="header" role="banner">
     <div className="header-content">
-      <div className="header-icon" aria-hidden="true">
-        <img src="/app-icon.png" alt="" style={{ width: '32px', height: '32px', borderRadius: '6px' }}
-          onError={(e) => {
-            const img = e.target as HTMLImageElement;
-            img.style.display = 'none';
-            const span = document.createElement('span');
-            span.style.fontSize = '1.5rem';
-            span.textContent = '🌱';
-            img.parentNode?.appendChild(span);
-          }} />
-      </div>
+      <div className="header-icon" aria-hidden="true"><Sprout size={22} /></div>
       <div className="header-title">
         <h1>{t.appTitle}</h1>
         <p className="header-subtitle">{t.appSubtitle}</p>
       </div>
-      <div className="header-actions">
-        <button onClick={onShowHelp} className="header-btn" aria-label={t.helpTitle}>
-          <HelpCircle size={18} /><span className="btn-text">{t.helpTitle}</span>
+      <nav className="header-actions" aria-label="App">
+        <button onClick={onShowHelp} className="icon-btn" aria-label={t.helpTitle} title={t.helpTitle}>
+          <HelpCircle size={20} />
         </button>
-        <button onClick={() => setTheme(p => p === 'dark' ? 'light' : 'dark')} className="header-btn"
-          aria-label={theme === 'dark' ? t.themeLight : t.themeDark}>
-          {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+        <button onClick={() => setShowHistory(!showHistory)} className={`icon-btn ${showHistory ? 'active' : ''}`}
+          aria-expanded={showHistory} aria-label={showHistory ? t.hideHistory : t.viewHistory}
+          title={showHistory ? t.hideHistory : t.viewHistory}>
+          <History size={20} />
+          {historyCount > 0 && <span className="history-badge" aria-hidden="true">{historyCount > 99 ? '99+' : historyCount}</span>}
         </button>
-        <button onClick={() => setShowHistory(!showHistory)} className={`header-btn ${showHistory ? 'active' : ''}`} aria-expanded={showHistory}>
-          <History size={18} /><span className="btn-text">{showHistory ? t.hideHistory : t.viewHistory}</span>
-          {historyCount > 0 && <span className="history-badge">{historyCount}</span>}
+        <button onClick={() => setTheme(p => p === 'dark' ? 'light' : 'dark')} className="icon-btn"
+          aria-label={theme === 'dark' ? t.themeLight : t.themeDark} title={theme === 'dark' ? t.themeLight : t.themeDark}>
+          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
         </button>
-        <button onClick={() => setLang(p => p === 'en' ? 'fr' : 'en')} className="header-btn accent">
-          <Globe size={18} /><span className="btn-text">{lang === 'en' ? 'FR' : 'EN'}</span>
+        <button onClick={() => setLang(p => p === 'en' ? 'fr' : 'en')} className="lang-toggle"
+          aria-label={lang === 'en' ? 'Passer en français' : 'Switch to English'}>
+          <Languages size={16} aria-hidden="true" /><span>{lang === 'en' ? 'FR' : 'EN'}</span>
         </button>
-      </div>
+      </nav>
     </div>
   </header>
 );

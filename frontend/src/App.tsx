@@ -1,7 +1,7 @@
 import './App.css';
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 
-import { TRANSLATIONS, BACKEND_TRANSLATIONS } from './constants/translations';
+import { TRANSLATIONS } from './constants/translations';
 import SOIL_PARAMETERS from './constants/soilParameters';
 import { analyzeSoil as apiAnalyzeSoil, fetchHistory, deleteHistoryItem } from './utils/api';
 import { calculateFertilizerRecommendations, exportToPDF } from './utils/pdf';
@@ -19,7 +19,12 @@ const SAMPLE_SOIL = { N:'125', P:'6.5', K:'255', pH:'6.5', EC:'0.34', OC:'0.58',
 function App() {
   const [lang, setLang] = useState('en');
   const [theme, setTheme] = useState(() => {
-    try { return window.localStorage.getItem('agritech_theme') || 'dark'; } catch { return 'dark'; }
+    try {
+      const saved = window.localStorage.getItem('agritech_theme');
+      if (saved) return saved;
+    } catch {}
+    // Follow the device; light is easier to read outdoors in bright sun
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
   const [soilData, setSoilData] = useState(() =>
     SOIL_PARAMETERS.reduce((acc, p) => ({ ...acc, [p.id]: '' }), {})
@@ -114,10 +119,6 @@ function App() {
     Object.values(soilData).every(v => v !== '') && Object.values(errors).every(e => !e),
   [soilData, errors]);
 
-  const translateSummary = useCallback((suitability) =>
-    BACKEND_TRANSLATIONS[lang]?.summaries?.[suitability] || result?.summary || '',
-  [lang, result]);
-
   const handleAnalyzeSoil = useCallback(async () => {
     if (!isFormValid) return;
     setLoading(true); setApiError(null); setResult(null);
@@ -126,7 +127,7 @@ function App() {
       const data = await apiAnalyzeSoil(payload);
       setResult(data);
       saveToHistory(soilData, data);
-      addToast(`${t.analysisComplete}: ${data.suitability}`, 'success');
+      addToast(`${t.analysisComplete}: ${t.cropNames[data.suitability] || data.suitability}`, 'success');
       setTimeout(() => {
         resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         resultsRef.current?.focus();
@@ -169,26 +170,17 @@ function App() {
           loadFromHistory={loadFromHistory} deleteFromHistory={deleteFromHistory} t={t} />
       )}
 
-      <div className="progress-container">
-        <div className="progress-card" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
-          <div className="progress-header">
-            <span className="progress-label">{t.progressLabel}</span>
-            <span className="progress-percentage">{progress}%</span>
-          </div>
-          <div className="progress-bar-bg"><div className="progress-bar-fill" style={{ width: `${progress}%` }} /></div>
+      <main className="page">
+        <div className="main-content">
+          <InputPanel soilData={soilData} errors={errors} handleInputChange={handleInputChange}
+            isOptimalValue={isOptimalValue} isFormValid={isFormValid} loading={loading}
+            onAnalyze={handleAnalyzeSoil} apiError={apiError} progress={progress}
+            onLoadSample={loadSample} onClear={clearAll} t={t} />
+
+          <ResultsPanel result={result} loading={loading} soilData={soilData} lang={lang} t={t}
+            fertilizers={fertilizers} exportToPDF={handleExportPDF} resultsRef={resultsRef} />
         </div>
-      </div>
-
-      <div className="main-content">
-        <InputPanel soilData={soilData} errors={errors} handleInputChange={handleInputChange}
-          isOptimalValue={isOptimalValue} isFormValid={isFormValid} loading={loading}
-          onAnalyze={handleAnalyzeSoil} apiError={apiError}
-          onLoadSample={loadSample} onClear={clearAll} t={t} />
-
-        <ResultsPanel result={result} loading={loading} soilData={soilData} lang={lang} t={t}
-          fertilizers={fertilizers} exportToPDF={handleExportPDF}
-          translateSummary={translateSummary} resultsRef={resultsRef} />
-      </div>
+      </main>
     </div>
   );
 }

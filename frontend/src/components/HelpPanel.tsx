@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import SOIL_PARAMETERS from '../constants/soilParameters';
 import { X, FlaskConical, BarChart3, FileDown, History, Sprout, Leaf, ChevronDown, ChevronUp, Lightbulb } from 'lucide-react';
 
 const STEPS = [
@@ -28,20 +29,12 @@ const STEPS = [
   },
 ];
 
-const PARAM_GUIDE = [
-  { id: 'N',  optimal: '150–300 mg/kg', note: 'helpParams.N'  },
-  { id: 'P',  optimal: '7–10 mg/kg',    note: 'helpParams.P'  },
-  { id: 'K',  optimal: '400–700 mg/kg', note: 'helpParams.K'  },
-  { id: 'pH', optimal: '6.5–7.5',       note: 'helpParams.pH' },
-  { id: 'EC', optimal: '0.4–0.8 dS/m',  note: 'helpParams.EC' },
-  { id: 'OC', optimal: '0.8–2.0 %',     note: 'helpParams.OC' },
-  { id: 'S',  optimal: '10–30 mg/kg',   note: 'helpParams.S'  },
-  { id: 'Zn', optimal: '0.2–0.5 mg/kg', note: 'helpParams.Zn' },
-  { id: 'Fe', optimal: '0.3–1.0 mg/kg', note: 'helpParams.Fe' },
-  { id: 'Cu', optimal: '0.5–2.0 mg/kg', note: 'helpParams.Cu' },
-  { id: 'Mn', optimal: '2–10 mg/kg',    note: 'helpParams.Mn' },
-  { id: 'B',  optimal: '0.5–3.0 mg/kg', note: 'helpParams.B'  },
-];
+// Target ranges come from the same list the form uses, so they never drift
+const PARAM_GUIDE = SOIL_PARAMETERS.map(p => ({
+  id: p.id,
+  optimal: `${p.optimal.min}–${p.optimal.max}${p.unit ? ' ' + p.unit : ''}`,
+  note: `helpParams.${p.id}`,
+}));
 
 const HelpPanel = ({ onClose, t }: { onClose: () => void; t: any }) => {
   const [showParams, setShowParams] = useState(false);
@@ -77,7 +70,7 @@ const HelpPanel = ({ onClose, t }: { onClose: () => void; t: any }) => {
           </div>
 
           <div className="help-tips">
-            <h3 className="help-tips-title">💡 {t.tipsTitle}</h3>
+            <h3 className="help-tips-title"><Lightbulb size={16} aria-hidden="true" />{t.tipsTitle}</h3>
             <ul className="help-tips-list">
               {(t.tips as string[]).map((tip: string, i: number) => (
                 <li key={i}>{tip}</li>
@@ -103,7 +96,7 @@ const HelpPanel = ({ onClose, t }: { onClose: () => void; t: any }) => {
                   <div key={p.id} className="help-param-card">
                     <div className="help-param-id">{p.id}</div>
                     <div className="help-param-label">{t.parameters[p.id]?.label}</div>
-                    <div className="help-param-optimal">✓ {p.optimal}</div>
+                    <div className="help-param-optimal">{t.targetLabel} {p.optimal}</div>
                     <p className="help-param-note">{t[p.note]}</p>
                   </div>
                 ))}

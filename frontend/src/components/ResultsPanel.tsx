@@ -1,167 +1,186 @@
 import React, { useState } from 'react';
-import { Download, CheckCircle2, Sprout } from 'lucide-react';
+import { Download, Sprout, ListChecks, Trophy, FlaskConical, Leaf, Sparkles, Package } from 'lucide-react';
 import SoilHealthGauge from './SoilHealthGauge';
 import NutrientChart from './NutrientChart';
 import ShapExplanation from './ShapExplanation';
 import SeasonalCalendar from './SeasonalCalendar';
 import ResultSkeleton from './ResultSkeleton';
+import CropIcon from './CropIcon';
 import { translateCrop } from '../constants/translations';
 
-const ResultsPanel = ({ result, loading, soilData, lang, t, fertilizers, exportToPDF, translateSummary, resultsRef }) => {
-  const [showAllCrops, setShowAllCrops] = useState(false);
+const EmptyState = ({ t }) => (
+  <section className="card">
+    <div className="empty-state">
+      <div className="empty-icon" aria-hidden="true"><Sprout size={36} /></div>
+      <h2 className="empty-title">{t.emptyTitle}</h2>
+      <p className="empty-description">{t.emptyDescription}</p>
+      <div className="empty-steps" aria-hidden="true">
+        <span className="empty-step"><FlaskConical size={14} />{t.soilHealth}</span>
+        <span className="empty-step"><Trophy size={14} />{t.recommendedCropLabel}</span>
+        <span className="empty-step"><ListChecks size={14} />{t.actionPlan}</span>
+      </div>
+    </div>
+  </section>
+);
+
+const Hero = ({ result, cropScores, t, exportToPDF }) => {
+  const name = t.cropNames[result.recommendedCrop] || result.recommendedCrop;
+  const top = Object.entries(cropScores || {}).sort(([, a]: any, [, b]: any) => b - a).slice(0, 4);
+  return (
+    <section className="card hero-card" aria-label={t.recommendedCropLabel}>
+      <div className="hero-top">
+        <span className="ml-badge"><Sparkles size={14} />{result.scoreSource === 'rules' ? t.rulesFallback : t.mlCropBadge}</span>
+        <button onClick={exportToPDF} className="btn btn-secondary export-button" aria-label={t.exportPDF} title={t.exportPDF}>
+          <Download size={16} aria-hidden="true" /><span className="btn-label">{t.exportPDF}</span>
+        </button>
+      </div>
+      <div className="hero-main">
+        <CropIcon name={result.recommendedCrop} size="lg" />
+        <div>
+          <p className="eyebrow">{t.recommendedCropLabel}</p>
+          <h2 className="hero-name">{name}</h2>
+        </div>
+        <div className="hero-score">
+          <div className="hero-score-value num">{result.confidenceScore}</div>
+          <div className="hero-score-label"><span className="long">{t.cropSuitability} · </span>{t.outOf}</div>
+        </div>
+      </div>
+      <p className="suitability-summary">{result.summary}</p>
+      {top.length > 1 && (
+        <div className="crop-probabilities">
+          <p className="crop-prob-title">{t.topCropProbabilities}</p>
+          {top.map(([crop, score]: [string, any]) => (
+            <div key={crop} className="crop-prob-row">
+              <span className="crop-prob-name"><CropIcon name={crop} size="sm" />{t.cropNames[crop] || crop}</span>
+              <div className="crop-prob-bar-wrap" aria-hidden="true">
+                <div className="crop-prob-bar" style={{ width: `${Math.round(score * 100)}%` }} />
+              </div>
+              <span className="crop-prob-pct">{Math.round(score * 100)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+};
+
+const ActionPlan = ({ result, t }) => (
+  <section className="card" aria-label={t.actionPlan}>
+    <h3 className="card-title"><ListChecks size={20} />{t.actionPlan}</h3>
+    <p className="card-description">{t.actionPlanDesc}</p>
+    <ol className="action-list">
+      {(result.recommendations || []).map((rec, i) => <li key={i} className="action-item">{rec}</li>)}
+    </ol>
+    {result.deficiencies?.length > 0 && (<>
+      <p className="chip-label">{t.deficienciesLabel}</p>
+      <div className="chip-row">
+        {result.deficiencies.map((d, i) => <span key={i} className="chip warn">{d.split(' (')[0]}</span>)}
+      </div>
+    </>)}
+    {result.strengths?.length > 0 && (<>
+      <p className="chip-label">{t.strengthsLabel}</p>
+      <div className="chip-row">
+        {result.strengths.map((s, i) => <span key={i} className="chip good">{s.split(' (')[0]}</span>)}
+      </div>
+    </>)}
+  </section>
+);
+
+const CropRanking = ({ crops, t }) => {
+  const [showAll, setShowAll] = useState(false);
+  if (!crops?.length) return null;
+  const visible = showAll ? crops : crops.slice(0, 6);
+  return (
+    <section className="card" aria-label={t.cropRanking}>
+      <h3 className="card-title"><Trophy size={20} />{t.cropRanking}</h3>
+      <p className="card-description">{t.cropsDescription}</p>
+      <div className="crops-list">
+        {visible.map((crop) => {
+          const tc = translateCrop(crop, t);
+          return (
+            <div key={crop.name} className="crop-row">
+              <CropIcon name={crop.name} />
+              <div className="crop-info">
+                <div className="crop-name">{tc.name}</div>
+                <div className="crop-category">
+                  <span>{tc.category}</span>
+                  {crop.plantingSeasons?.length > 0 && <span>{t.plantLabel}: {crop.plantingSeasons.join(', ')}</span>}
+                </div>
+              </div>
+              <div className="crop-score-bar" aria-hidden="true"><div style={{ width: `${tc.suitabilityScore}%` }} /></div>
+              <div>
+                <div className="crop-score-value">{tc.suitabilityScore}</div>
+                <div className="crop-priority">{tc.priority}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {crops.length > 6 && (
+        <button onClick={() => setShowAll(p => !p)} className="btn btn-ghost btn-block" style={{ marginTop: 8 }}>
+          {showAll ? t.showLess : `${t.showMore} (${crops.length - 6})`}
+        </button>
+      )}
+    </section>
+  );
+};
+
+const FertilizerProducts = ({ fertilizers, t }) => (
+  <section className="card" aria-label={t.fertilizerTitle}>
+    <h3 className="card-title"><Package size={20} />{t.fertilizerTitle}</h3>
+    <p className="card-description">{t.fertilizerDescription}</p>
+    <div className="fertilizer-grid">
+      {fertilizers.map((fert, i) => (
+        <div key={i} className={`fertilizer-card ${fert.priority === 'High' ? 'high' : ''}`}>
+          <div className="fertilizer-header">
+            <div>
+              <h4 className="fertilizer-name">{fert.fertilizer}</h4>
+              <p className="fertilizer-nutrient">{t.parameters[fert.nutrientId]?.label || fert.nutrientId}</p>
+            </div>
+            <span className={`priority-badge ${fert.priority.toLowerCase()}`}>
+              {fert.priority === 'High' ? t.priorityHigh : t.priorityMedium}
+            </span>
+          </div>
+          <div className="fertilizer-details">
+            <div><span className="detail-label">{t.composition}:</span> <span className="detail-value">{fert.composition}</span></div>
+            <div><span className="detail-label">{t.dosage}:</span> <span className="detail-value">{fert.dosage}</span></div>
+            <div><span className="detail-label">{t.estCost}:</span> <span className="detail-value accent">{fert.cost}</span></div>
+          </div>
+        </div>
+      ))}
+    </div>
+    <div className="fertilizer-tip">
+      <strong>{t.applicationTimingLabel}</strong> {t.applicationTimingText}
+    </div>
+  </section>
+);
+
+const ResultsPanel = ({ result, loading, soilData, lang, t, fertilizers, exportToPDF, resultsRef, translateSummary = null }) => {
   // Suitability 0-1 per crop; older backends sent it as 'probabilities'
   const cropScores = result?.cropScores || result?.probabilities;
   return (
-  <div className="results-panel" ref={resultsRef} tabIndex={-1}>
-    {loading ? <ResultSkeleton /> : !result ? (
-      <div className="result-card">
-        <div className="empty-state">
-          <div className="empty-icon" aria-hidden="true">
-            <img src="/app-icon.png" alt="" style={{ width: '56px', height: '56px', borderRadius: '12px' }}
-              onError={(e) => {
-                const img = e.target as HTMLImageElement;
-                img.style.display = 'none';
-                const span = document.createElement('span');
-                span.style.fontSize = '3rem';
-                span.textContent = '🌱';
-                img.parentNode?.appendChild(span);
-              }} />
+    <div className="results-panel" ref={resultsRef} tabIndex={-1} aria-live="polite">
+      {loading ? <ResultSkeleton /> : !result ? <EmptyState t={t} /> : (
+        <>
+          <Hero result={result} cropScores={cropScores} t={t} exportToPDF={exportToPDF} />
+
+          <div className="results-grid">
+            <SoilHealthGauge healthData={result.soil_health_score} t={t} />
+            <ActionPlan result={result} t={t} />
           </div>
-          <h3 className="empty-title">{t.emptyTitle}</h3>
-          <p className="empty-description">{t.emptyDescription}</p>
-        </div>
-      </div>
-    ) : (
-      <>
-        <button onClick={exportToPDF} className="export-button">
-          <Download size={20} />{t.exportPDF}
-        </button>
 
-        <SoilHealthGauge healthData={result.soil_health_score} t={t} />
+          <CropRanking crops={result.recommendedCrops} t={t} />
+          <SeasonalCalendar crops={result.recommendedCrops} t={t} />
+          {fertilizers.length > 0 && <FertilizerProducts fertilizers={fertilizers} t={t} />}
 
-        <NutrientChart soilData={soilData} t={t} lang={lang} />
-
-        {result.isModelCropRecommendation ? (
-          /* ── Crop Recommendation Card (new model) ── */
-          <div className="result-card suitability-card crop-recommendation" role="region" aria-label={t.recommendedCropLabel}>
-            <div className="suitability-header">
-              <div>
-                <span className="ml-badge">{t.mlCropBadge}</span>
-                <p className="suitability-level">{t.recommendedCropLabel}</p>
-                <h2 className="suitability-value crop-name-big">
-                  {(t.cropEmojis as any)?.[result.recommendedCrop] || '🌱'} {result.recommendedCrop}
-                </h2>
-              </div>
-              <CheckCircle2 size={48} aria-hidden="true" />
-            </div>
-            <p className="suitability-summary">{result.summary}</p>
-            <div className="confidence-badges">
-              <div className="confidence-badge"><p>{t.cropSuitability}</p><div className="value">{result.confidenceScore}/100</div></div>
-            </div>
-            {cropScores && Object.keys(cropScores).length > 1 && (
-              <div className="crop-probabilities">
-                <p className="crop-prob-title">{t.topCropProbabilities}</p>
-                {Object.entries(cropScores).sort(([, a]: any, [, b]: any) => b - a).slice(0, 4).map(([crop, prob]: [string, any]) => (
-                  <div key={crop} className="crop-prob-row">
-                    <span className="crop-prob-name">
-                      {(t.cropEmojis as any)?.[crop] || '🌱'} {crop}
-                    </span>
-                    <div className="crop-prob-bar-wrap">
-                      <div className="crop-prob-bar" style={{ width: `${Math.round(prob * 100)}%` }} />
-                    </div>
-                    <span className="crop-prob-pct">{Math.round(prob * 100)}%</span>
-                  </div>
-                ))}
-              </div>
-            )}
+          <h2 className="section-heading"><Leaf size={14} aria-hidden="true" />{t.analysisDetails}</h2>
+          <div className="details-grid">
+            <NutrientChart soilData={soilData} t={t} lang={lang} />
+            <ShapExplanation shapData={result.shap_explanation} t={t} />
           </div>
-        ) : (
-          /* ── Legacy Soil Quality Card ── */
-          <div className={`result-card suitability-card ${result.suitability.toLowerCase()}`} role="region" aria-label={t.suitabilityLabel}>
-            <div className="suitability-header">
-              <div>
-                <p className="suitability-level">{t.suitabilityLabel}</p>
-                <h2 className="suitability-value">{t[result.suitability.toLowerCase()] || result.suitability}</h2>
-              </div>
-              <CheckCircle2 size={48} aria-hidden="true" />
-            </div>
-            <p className="suitability-summary">{translateSummary(result.suitability)}</p>
-            <div className="confidence-badges">
-              <div className="confidence-badge"><p>{t.confidence}</p><div className="value">{result.confidence}</div></div>
-              <div className="confidence-badge"><p>{t.score}</p><div className="value">{result.confidenceScore}/100</div></div>
-            </div>
-          </div>
-        )}
-
-        <ShapExplanation shapData={result.shap_explanation} t={t} />
-
-        {fertilizers.length > 0 && (
-          <div className="result-card" role="region" aria-label={t.fertilizerTitle}>
-            <h3 className="card-title">{t.fertilizerTitle}</h3>
-            <p className="card-description">{t.fertilizerDescription}</p>
-            <div className="fertilizer-grid">
-              {fertilizers.map((fert, i) => (
-                <div key={i} className={`fertilizer-card ${fert.priority === 'High' ? 'high' : ''}`}>
-                  <div className="fertilizer-header">
-                    <div>
-                      <h4 className="fertilizer-name">{fert.fertilizer}</h4>
-                      <p className="fertilizer-nutrient">{t.parameters[fert.nutrientId]?.label || fert.nutrientId} — {t.deficiency}</p>
-                    </div>
-                    <span className={`priority-badge ${fert.priority.toLowerCase()}`}>
-                      {fert.priority === 'High' ? t.priorityHigh : t.priorityMedium}
-                    </span>
-                  </div>
-                  <div className="fertilizer-details">
-                    <div><span className="detail-label">{t.composition}:</span> <span className="detail-value">{fert.composition}</span></div>
-                    <div><span className="detail-label">{t.dosage}:</span> <span className="detail-value">{fert.dosage}</span></div>
-                    <div><span className="detail-label">{t.type}:</span> <span className="detail-value">{fert.type}</span></div>
-                    <div><span className="detail-label">{t.estCost}:</span> <span className="detail-value accent">{fert.cost}</span></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="fertilizer-tip">
-              <strong style={{ color: '#00E5FF' }}>{t.applicationTimingLabel}</strong> {t.applicationTimingText}
-            </div>
-          </div>
-        )}
-
-        <SeasonalCalendar crops={result.recommendedCrops} t={t} />
-
-        {result.recommendedCrops?.length > 0 && (
-          <div className="result-card" role="region" aria-label={t.recommendedCrops}>
-            <h3 className="card-title"><Sprout size={22} style={{ color: '#00E5FF' }} />{t.recommendedCrops}</h3>
-            <p className="card-description">{t.cropsDescription}</p>
-            <div className="crops-grid">
-              {(showAllCrops ? result.recommendedCrops : result.recommendedCrops.slice(0, 6)).map((crop, i) => {
-                const tc = translateCrop(crop, t);
-                return (
-                  <div key={i} className="crop-card">
-                    <div className="crop-info">
-                      <h4 className="crop-name">{tc.name}</h4>
-                      <p className="crop-category">{tc.category}</p>
-                      {crop.plantingSeasons?.length > 0 && (
-                        <p className="crop-season">{t.plantLabel}: {crop.plantingSeasons.join(', ')}</p>
-                      )}
-                    </div>
-                    <div className="crop-score">
-                      <div className="crop-score-value">{tc.suitabilityScore}%</div>
-                      <p className="crop-priority">{tc.priority}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {result.recommendedCrops.length > 6 && (
-              <button onClick={() => setShowAllCrops(p => !p)} className="utility-btn" style={{ marginTop: '0.75rem', width: '100%' }}>
-                {showAllCrops ? t.showLess : `${t.showMore} (${result.recommendedCrops.length - 6})`}
-              </button>
-            )}
-          </div>
-        )}
-      </>
-    )}
-  </div>
+        </>
+      )}
+    </div>
   );
 };
 
