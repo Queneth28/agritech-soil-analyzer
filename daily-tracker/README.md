@@ -10,6 +10,10 @@ A really simple Notion-like tracker for your daily **projects**, **work** and **
 
 You need [Node.js](https://nodejs.org) 18 or newer.
 
+**Easiest:** double-click `start.bat` (Windows) or `start.command` (macOS). It starts the server and opens the app in your browser. Keep the window open while you use it.
+
+**Or from a terminal:**
+
 ```bash
 cd daily-tracker
 npm start
