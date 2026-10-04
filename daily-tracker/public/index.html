@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Daily Tracker</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <h1>📓 Daily Tracker</h1>
+    <nav id="nav">
+      <button data-view="today" class="active">☀️ Today</button>
+      <button data-view="project">📁 Projects</button>
+      <button data-view="work">💼 Work</button>
+      <button data-view="schedule">📅 Schedule</button>
+      <button data-view="all">🗂️ All</button>
+    </nav>
+  </aside>
+
+  <main>
+    <header>
+      <h2 id="view-title">Today</h2>
+      <span id="today-date"></span>
+    </header>
+
+    <form id="new-form">
+      <input id="new-title" placeholder="+ New item... (press Enter)" autocomplete="off" required />
+      <select id="new-type">
+        <option value="work">💼 Work</option>
+        <option value="project">📁 Project</option>
+        <option value="schedule">📅 Schedule</option>
+      </select>
+      <input id="new-date" type="date" />
+      <input id="new-time" type="time" />
+      <button type="submit">Add</button>
+    </form>
+
+    <div id="columns" class="columns"></div>
+  </main>
+
+  <section id="page" class="page hidden">
+    <button id="close-page" class="close" title="Close">✕</button>
+    <input id="page-title" class="page-title" />
+    <div class="props">
+      <label>Type
+        <select id="page-type">
+          <option value="work">💼 Work</option>
+          <option value="project">📁 Project</option>
+          <option value="schedule">📅 Schedule</option>
+        </select>
+      </label>
+      <label>Status
+        <select id="page-status">
+          <option value="todo">To do</option>
+          <option value="doing">In progress</option>
+          <option value="done">Done</option>
+        </select>
+      </label>
+      <label>Date <input id="page-date" type="date" /></label>
+      <label>Time <input id="page-time" type="time" /></label>
+    </div>
+    <textarea id="page-notes" placeholder="Write notes, tasks, ideas..."></textarea>
+    <div class="page-footer">
+      <span id="save-state"></span>
+      <button id="delete-item" class="danger">Delete</button>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
